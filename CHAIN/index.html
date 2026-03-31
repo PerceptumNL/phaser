@@ -21,6 +21,9 @@ class GameScene extends Phaser.Scene {
     constructor() { super('GameScene'); }
 
     create() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+
         this.state = 'menu';
         this.score = 0;
         this.best = parseInt(localStorage.getItem('chain-best') || '0');
@@ -29,57 +32,100 @@ class GameScene extends Phaser.Scene {
         this.isDragging = false;
         this.gameTime = 0;
         this.particles = [];
-        this.popups = [];
+        this.fallAnim = null;
 
-        this.calcLayout();
-        this.boardGfx = this.add.graphics().setDepth(0);
-        this.pieceGfx = this.add.graphics().setDepth(1);
-        this.chainGfx = this.add.graphics().setDepth(2);
-        this.particleGfx = this.add.graphics().setDepth(5);
-        this.uiGfx = this.add.graphics().setDepth(10);
-
-        const w = this.scale.width, h = this.scale.height;
-        this.scoreText = this.add.text(w/2, h*0.04, '0', { fontSize:'44px', fontStyle:'bold', color:'#ffffff' }).setOrigin(0.5,0).setAlpha(0).setDepth(10);
-        this.timerText = this.add.text(w/2, h*0.92, '0:00', { fontSize:'20px', color:'#ffffff' }).setOrigin(0.5).setAlpha(0).setDepth(10);
-        this.bestText = this.add.text(w/2, h*0.96, '', { fontSize:'16px', color:'#ffd700' }).setOrigin(0.5).setAlpha(0).setDepth(10);
-
-        // Menu
-        this.menuC = this.add.container(0,0).setDepth(20);
-        this.menuC.add(this.add.text(w/2, h*0.3, 'CHAIN', { fontSize:'64px', fontStyle:'bold', color:'#e0e0f0' }).setOrigin(0.5));
-        this.menuC.add(this.add.text(w/2, h*0.38, 'draw to match', { fontSize:'20px', color:'#888899' }).setOrigin(0.5));
-        this.menuC.add(this.add.text(w/2, h*0.50, 'drag through same colors\n3 or more to clear', { fontSize:'16px', color:'#666677', align:'center' }).setOrigin(0.5));
-        this.menuTap = this.add.text(w/2, h*0.65, 'tap to start', { fontSize:'24px', color:'#ffd700' }).setOrigin(0.5);
-        this.menuC.add(this.menuTap);
-
-        // Death
-        this.deathC = this.add.container(0,0).setDepth(20).setVisible(false);
-        this.deathOvl = this.add.graphics(); this.deathOvl.fillStyle(0x000000,0.75); this.deathOvl.fillRect(0,0,w,h);
-        this.deathC.add(this.deathOvl);
-        this.deathScore = this.add.text(w/2, h*0.38, '', { fontSize:'56px', fontStyle:'bold', color:'#e0e0f0' }).setOrigin(0.5);
-        this.deathC.add(this.add.text(w/2, h*0.30, 'Score', { fontSize:'22px', color:'#888899' }).setOrigin(0.5));
-        this.deathC.add(this.deathScore);
-        this.deathBest = this.add.text(w/2, h*0.48, '', { fontSize:'22px', color:'#ffd700' }).setOrigin(0.5);
-        this.deathC.add(this.deathBest);
-        this.deathTime = this.add.text(w/2, h*0.54, '', { fontSize:'18px', color:'#666677' }).setOrigin(0.5);
-        this.deathC.add(this.deathTime);
-        this.deathRetry = this.add.text(w/2, h*0.68, 'tap to retry', { fontSize:'24px', color:'#ffd700' }).setOrigin(0.5);
-        this.deathC.add(this.deathRetry);
-
-        this.input.on('pointerdown', p => this.onDown(p));
-        this.input.on('pointermove', p => this.onMove(p));
-        this.input.on('pointerup', () => this.onUp());
-        this.scale.on('resize', () => { this.calcLayout(); this.drawBoard(); this.drawPieces(); });
-    }
-
-    calcLayout() {
-        const w = this.scale.width, h = this.scale.height;
+        // Layout
         const margin = 16;
-        this.cellSize = Math.floor((w - margin*2) / COLS);
+        this.cellSize = Math.floor((w - margin * 2) / COLS);
         const boardW = this.cellSize * COLS;
         const boardH = this.cellSize * ROWS;
         this.boardLeft = Math.floor((w - boardW) / 2);
         this.boardTop = Math.floor(h * 0.10);
-        if (this.boardTop + boardH > h * 0.85) this.boardTop = Math.floor(h*0.85 - boardH);
+        if (this.boardTop + boardH > h * 0.85) this.boardTop = Math.floor(h * 0.85 - boardH);
+
+        // Graphics layers
+        this.boardGfx = this.add.graphics();
+        this.pieceGfx = this.add.graphics();
+        this.chainGfx = this.add.graphics();
+        this.particleGfx = this.add.graphics();
+
+        // HUD text (hidden until game starts)
+        this.scoreText = this.add.text(w / 2, h * 0.04, '0', {
+            fontSize: '44px', fontStyle: 'bold', color: '#ffffff'
+        }).setOrigin(0.5, 0).setAlpha(0);
+
+        this.timerText = this.add.text(w / 2, h * 0.92, '0:00', {
+            fontSize: '20px', color: '#ffffff'
+        }).setOrigin(0.5).setAlpha(0);
+
+        this.bestLabel = this.add.text(w / 2, h * 0.96, '', {
+            fontSize: '16px', color: '#ffd700'
+        }).setOrigin(0.5).setAlpha(0);
+
+        // Menu screen
+        this.menuTitle = this.add.text(w / 2, h * 0.25, 'CHAIN', {
+            fontSize: '64px', fontStyle: 'bold', color: '#e0e0f0'
+        }).setOrigin(0.5);
+
+        this.menuSub = this.add.text(w / 2, h * 0.34, 'draw to match', {
+            fontSize: '20px', color: '#888899'
+        }).setOrigin(0.5);
+
+        this.menuInstr = this.add.text(w / 2, h * 0.44, 'drag through same colors\n3 or more to clear', {
+            fontSize: '16px', color: '#666677', align: 'center'
+        }).setOrigin(0.5);
+
+        this.menuTap = this.add.text(w / 2, h * 0.58, 'tap to start', {
+            fontSize: '24px', color: '#ffd700'
+        }).setOrigin(0.5);
+
+        // Death screen (hidden)
+        this.deathOverlay = this.add.graphics().setVisible(false);
+        this.deathScoreLabel = this.add.text(w / 2, h * 0.30, 'Score', {
+            fontSize: '22px', color: '#888899'
+        }).setOrigin(0.5).setVisible(false);
+        this.deathScoreVal = this.add.text(w / 2, h * 0.38, '', {
+            fontSize: '56px', fontStyle: 'bold', color: '#e0e0f0'
+        }).setOrigin(0.5).setVisible(false);
+        this.deathBestVal = this.add.text(w / 2, h * 0.48, '', {
+            fontSize: '22px', color: '#ffd700'
+        }).setOrigin(0.5).setVisible(false);
+        this.deathTimeVal = this.add.text(w / 2, h * 0.54, '', {
+            fontSize: '18px', color: '#666677'
+        }).setOrigin(0.5).setVisible(false);
+        this.deathRetry = this.add.text(w / 2, h * 0.68, 'tap to retry', {
+            fontSize: '24px', color: '#ffd700'
+        }).setOrigin(0.5).setVisible(false);
+
+        // Input
+        this.input.on('pointerdown', p => this.onDown(p));
+        this.input.on('pointermove', p => this.onMove(p));
+        this.input.on('pointerup', () => this.onUp());
+    }
+
+    // --- Board helpers ---
+
+    cellCenter(col, row) {
+        return {
+            x: this.boardLeft + col * this.cellSize + this.cellSize / 2,
+            y: this.boardTop + row * this.cellSize + this.cellSize / 2
+        };
+    }
+
+    getCellAt(p) {
+        const col = Math.floor((p.x - this.boardLeft) / this.cellSize);
+        const row = Math.floor((p.y - this.boardTop) / this.cellSize);
+        if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return null;
+        return { col, row };
+    }
+
+    isAdj(a, b) {
+        return Math.abs(a.col - b.col) <= 1 && Math.abs(a.row - b.row) <= 1 &&
+               !(a.col === b.col && a.row === b.row);
+    }
+
+    inChain(c) {
+        return this.chain.some(ch => ch.col === c.col && ch.row === c.row);
     }
 
     initBoard() {
@@ -87,40 +133,80 @@ class GameScene extends Phaser.Scene {
         for (let c = 0; c < COLS; c++) {
             this.grid[c] = [];
             for (let r = 0; r < ROWS; r++) {
-                this.grid[c][r] = { color: Phaser.Math.Between(0, NUM_COLORS-1), col:c, row:r, offsetY:0, scale:1 };
+                this.grid[c][r] = {
+                    color: Phaser.Math.Between(0, NUM_COLORS - 1),
+                    col: c, row: r, offsetY: 0
+                };
             }
         }
     }
 
-    cellCenter(col, row) {
-        return { x: this.boardLeft + col*this.cellSize + this.cellSize/2, y: this.boardTop + row*this.cellSize + this.cellSize/2 };
-    }
-
-    getCellFromPointer(p) {
-        const col = Math.floor((p.x - this.boardLeft) / this.cellSize);
-        const row = Math.floor((p.y - this.boardTop) / this.cellSize);
-        if (col<0||col>=COLS||row<0||row>=ROWS) return null;
-        return { col, row };
-    }
-
-    isAdj(a,b) { return Math.abs(a.col-b.col)<=1 && Math.abs(a.row-b.row)<=1 && !(a.col===b.col&&a.row===b.row); }
-    inChain(c) { return this.chain.some(ch => ch.col===c.col && ch.row===c.row); }
+    // --- State transitions ---
 
     startGame() {
         this.state = 'playing';
-        this.score = 0; this.gameTime = 0;
-        this.menuC.setVisible(false); this.deathC.setVisible(false);
+        this.score = 0;
+        this.gameTime = 0;
+        this.chain = [];
+        this.particles = [];
+        this.fallAnim = null;
+
+        // Hide menus
+        this.menuTitle.setVisible(false);
+        this.menuSub.setVisible(false);
+        this.menuInstr.setVisible(false);
+        this.menuTap.setVisible(false);
+        this.hideDeathScreen();
+
+        // Show HUD
         this.scoreText.setText('0').setAlpha(0.4);
         this.timerText.setAlpha(0.25);
-        this.bestText.setText('Best: '+this.best).setAlpha(0.2);
-        this.initBoard(); this.drawBoard(); this.drawPieces();
+        this.bestLabel.setText('Best: ' + this.best).setAlpha(0.2);
+
+        this.initBoard();
+        this.drawBoard();
+        this.drawPieces();
     }
 
+    showDeathScreen() {
+        const w = this.scale.width, h = this.scale.height;
+        this.deathOverlay.clear();
+        this.deathOverlay.fillStyle(0x000000, 0.75);
+        this.deathOverlay.fillRect(0, 0, w, h);
+        this.deathOverlay.setVisible(true);
+        this.deathScoreLabel.setVisible(true);
+        this.deathScoreVal.setText(this.score.toString()).setVisible(true);
+        this.deathBestVal.setText('Best: ' + this.best).setVisible(true);
+        this.deathTimeVal.setText('Time: ' + this.formatTime(this.gameTime)).setVisible(true);
+        this.deathRetry.setVisible(true);
+    }
+
+    hideDeathScreen() {
+        this.deathOverlay.setVisible(false);
+        this.deathScoreLabel.setVisible(false);
+        this.deathScoreVal.setVisible(false);
+        this.deathBestVal.setVisible(false);
+        this.deathTimeVal.setVisible(false);
+        this.deathRetry.setVisible(false);
+    }
+
+    gameOver() {
+        this.state = 'dead';
+        if (this.score > this.best) {
+            this.best = this.score;
+            localStorage.setItem('chain-best', this.best.toString());
+        }
+        this.showDeathScreen();
+    }
+
+    // --- Input ---
+
     onDown(p) {
-        if (this.state==='menu') { this.startGame(); return; }
-        if (this.state==='dead') { this.startGame(); return; }
-        if (this.state!=='playing') return;
-        const cell = this.getCellFromPointer(p);
+        if (this.state === 'menu') { this.startGame(); return; }
+        if (this.state === 'dead') { this.startGame(); return; }
+        if (this.state !== 'playing' || this.fallAnim) return;
+
+        const cell = this.getCellAt(p);
         if (!cell || !this.grid[cell.col][cell.row]) return;
         this.isDragging = true;
         this.chain = [cell];
@@ -128,210 +214,259 @@ class GameScene extends Phaser.Scene {
     }
 
     onMove(p) {
-        if (!this.isDragging || this.chain.length===0 || this.state!=='playing') return;
-        const cell = this.getCellFromPointer(p);
+        if (!this.isDragging || this.chain.length === 0 || this.state !== 'playing') return;
+        const cell = this.getCellAt(p);
         if (!cell || !this.grid[cell.col][cell.row]) return;
-        const last = this.chain[this.chain.length-1];
+
+        const last = this.chain[this.chain.length - 1];
         const first = this.chain[0];
-        // Undo
-        if (this.chain.length>=2) {
-            const prev = this.chain[this.chain.length-2];
-            if (cell.col===prev.col && cell.row===prev.row) { this.chain.pop(); this.drawChain(); this.drawPieces(); return; }
+
+        // Undo: drag back to previous
+        if (this.chain.length >= 2) {
+            const prev = this.chain[this.chain.length - 2];
+            if (cell.col === prev.col && cell.row === prev.row) {
+                this.chain.pop();
+                this.drawChain();
+                this.drawPieces();
+                return;
+            }
         }
-        // Extend
-        if (this.isAdj(last,cell) && !this.inChain(cell) &&
+
+        // Extend chain
+        if (this.isAdj(last, cell) && !this.inChain(cell) &&
             this.grid[cell.col][cell.row].color === this.grid[first.col][first.row].color) {
             this.chain.push(cell);
             if (navigator.vibrate) navigator.vibrate(5);
-            this.drawChain(); this.drawPieces();
+            this.drawChain();
+            this.drawPieces();
         }
     }
 
     onUp() {
         if (!this.isDragging) return;
         this.isDragging = false;
-        if (this.chain.length >= 3 && this.state==='playing') {
-            const first = this.chain[0], last = this.chain[this.chain.length-1];
-            const isLoop = this.chain.length>=4 && this.isAdj(last, first);
+
+        if (this.chain.length >= 3 && this.state === 'playing') {
+            const first = this.chain[0], last = this.chain[this.chain.length - 1];
+            const isLoop = this.chain.length >= 4 && this.isAdj(last, first);
+
             if (isLoop) {
-                const color = this.grid[first.col][first.row].color;
-                this.clearLoop(color);
+                this.clearLoop(this.grid[first.col][first.row].color);
             } else {
                 this.clearChain();
             }
         }
+
         this.chain = [];
         this.chainGfx.clear();
         this.drawPieces();
     }
 
+    // --- Clearing ---
+
     clearChain() {
         const len = this.chain.length;
-        let pts = len<=3?30 : len===4?60 : len===5?100 : 100+(len-5)*50;
+        const pts = len <= 3 ? 30 : len === 4 ? 60 : len === 5 ? 100 : 100 + (len - 5) * 50;
         this.score += pts;
         this.scoreText.setText(this.score.toString());
 
-        // Particles + popup
-        let cx=0, cy=0;
         for (const c of this.chain) {
             const pos = this.cellCenter(c.col, c.row);
-            cx+=pos.x; cy+=pos.y;
             this.spawnParticles(pos.x, pos.y, this.grid[c.col][c.row].color);
             this.grid[c.col][c.row] = null;
         }
-        cx/=len; cy/=len;
-        this.spawnPopup(cx, cy, '+'+pts);
         this.applyGravity();
     }
 
     clearLoop(color) {
         let cleared = 0;
-        let cx=0, cy=0;
-        for (let c=0;c<COLS;c++) for(let r=0;r<ROWS;r++) {
-            if (this.grid[c][r] && this.grid[c][r].color===color) {
-                const pos = this.cellCenter(c,r);
-                cx+=pos.x; cy+=pos.y; cleared++;
-                this.spawnParticles(pos.x, pos.y, color);
-                this.grid[c][r] = null;
+        for (let c = 0; c < COLS; c++) {
+            for (let r = 0; r < ROWS; r++) {
+                if (this.grid[c][r] && this.grid[c][r].color === color) {
+                    const pos = this.cellCenter(c, r);
+                    this.spawnParticles(pos.x, pos.y, color);
+                    this.grid[c][r] = null;
+                    cleared++;
+                }
             }
         }
-        if (cleared>0) { cx/=cleared; cy/=cleared; }
-        const pts = 200 + cleared*20;
+        const pts = 200 + cleared * 20;
         this.score += pts;
         this.scoreText.setText(this.score.toString());
-        this.spawnPopup(cx, cy, '+'+pts);
         if (navigator.vibrate) navigator.vibrate(60);
         this.cameras.main.shake(130, 0.008);
         this.applyGravity();
     }
 
     applyGravity() {
-        for (let c=0;c<COLS;c++) {
+        for (let c = 0; c < COLS; c++) {
             const pieces = [];
-            for (let r=0;r<ROWS;r++) { if (this.grid[c][r]) pieces.push(this.grid[c][r]); }
-            const empty = ROWS - pieces.length;
-            for (let i=0;i<empty;i++) {
-                pieces.unshift({ color: Phaser.Math.Between(0,NUM_COLORS-1), col:c, row:0, offsetY: -(empty-i)*this.cellSize, scale:1 });
+            for (let r = 0; r < ROWS; r++) {
+                if (this.grid[c][r]) pieces.push(this.grid[c][r]);
             }
-            for (let r=0;r<ROWS;r++) {
+            const empty = ROWS - pieces.length;
+            for (let i = 0; i < empty; i++) {
+                pieces.unshift({
+                    color: Phaser.Math.Between(0, NUM_COLORS - 1),
+                    col: c, row: 0,
+                    offsetY: -(empty - i) * this.cellSize
+                });
+            }
+            for (let r = 0; r < ROWS; r++) {
                 const p = pieces[r];
-                const oldOff = p.offsetY || 0;
                 const rowDiff = r - p.row;
-                p.offsetY = oldOff - rowDiff * this.cellSize;
-                p.row = r; p.col = c;
+                p.offsetY = (p.offsetY || 0) - rowDiff * this.cellSize;
+                p.row = r;
+                p.col = c;
                 this.grid[c][r] = p;
             }
         }
-        // Animate fall
-        this.fallAnim = { t:0, duration:250 };
+        this.fallAnim = { t: 0, duration: 0.25 };
     }
 
     spawnParticles(x, y, colorIdx) {
         const clr = COLORS[colorIdx] || 0xffffff;
-        for (let i=0;i<4;i++) {
-            const a = Math.random()*Math.PI*2;
-            this.particles.push({ x, y, vx:Math.cos(a)*80, vy:Math.sin(a)*80, life:1, color:clr, size:3 });
+        for (let i = 0; i < 4; i++) {
+            const a = Math.random() * Math.PI * 2;
+            this.particles.push({
+                x, y,
+                vx: Math.cos(a) * 80, vy: Math.sin(a) * 80,
+                life: 1, color: clr, size: 3
+            });
         }
     }
 
-    spawnPopup(x, y, text) {
-        this.popups.push({ x, y, text, life:1 });
+    hasValidChain() {
+        const visited = Array.from({ length: COLS }, () => Array(ROWS).fill(false));
+        for (let c = 0; c < COLS; c++) {
+            for (let r = 0; r < ROWS; r++) {
+                if (visited[c][r] || !this.grid[c][r]) continue;
+                const color = this.grid[c][r].color;
+                const queue = [{ col: c, row: r }];
+                visited[c][r] = true;
+                let count = 0;
+                while (queue.length) {
+                    const cur = queue.shift();
+                    count++;
+                    for (let dc = -1; dc <= 1; dc++) {
+                        for (let dr = -1; dr <= 1; dr++) {
+                            if (dc === 0 && dr === 0) continue;
+                            const nc = cur.col + dc, nr = cur.row + dr;
+                            if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS || visited[nc][nr]) continue;
+                            if (this.grid[nc][nr] && this.grid[nc][nr].color === color) {
+                                visited[nc][nr] = true;
+                                queue.push({ col: nc, row: nr });
+                            }
+                        }
+                    }
+                }
+                if (count >= 3) return true;
+            }
+        }
+        return false;
     }
+
+    formatTime(s) {
+        const m = Math.floor(s / 60);
+        const ss = Math.floor(s % 60);
+        return m + ':' + (ss < 10 ? '0' : '') + ss;
+    }
+
+    // --- Drawing ---
 
     drawBoard() {
         this.boardGfx.clear();
         this.boardGfx.fillStyle(0x0f0f1a);
-        this.boardGfx.fillRect(this.boardLeft, this.boardTop, this.cellSize*COLS, this.cellSize*ROWS);
+        this.boardGfx.fillRect(this.boardLeft, this.boardTop, this.cellSize * COLS, this.cellSize * ROWS);
         this.boardGfx.lineStyle(1, 0x1a1a2a, 0.15);
-        for (let c=0;c<=COLS;c++) { const x=this.boardLeft+c*this.cellSize; this.boardGfx.lineBetween(x,this.boardTop,x,this.boardTop+this.cellSize*ROWS); }
-        for (let r=0;r<=ROWS;r++) { const y=this.boardTop+r*this.cellSize; this.boardGfx.lineBetween(this.boardLeft,y,this.boardLeft+this.cellSize*COLS,y); }
+        for (let c = 0; c <= COLS; c++) {
+            const x = this.boardLeft + c * this.cellSize;
+            this.boardGfx.lineBetween(x, this.boardTop, x, this.boardTop + this.cellSize * ROWS);
+        }
+        for (let r = 0; r <= ROWS; r++) {
+            const y = this.boardTop + r * this.cellSize;
+            this.boardGfx.lineBetween(this.boardLeft, y, this.boardLeft + this.cellSize * COLS, y);
+        }
     }
 
     drawPieces() {
         this.pieceGfx.clear();
-        const cs = this.cellSize, ps = cs-4, half = ps/2, iconS = ps*0.15;
-        for (let c=0;c<COLS;c++) for(let r=0;r<ROWS;r++) {
-            const p = this.grid[c][r]; if (!p) continue;
-            const pos = this.cellCenter(c,r);
-            let py = pos.y + (p.offsetY||0);
-            let sc = p.scale||1;
-            const inCh = this.inChain({col:c,row:r});
-            if (inCh) sc = 1.12;
-            const hs = half*sc;
-            // Rounded rect (approx with fillRect + circles at corners)
-            this.pieceGfx.fillStyle(COLORS[p.color]);
-            this.pieceGfx.fillRoundedRect(pos.x-hs, py-hs, hs*2, hs*2, 6*sc);
-            // Inner icon
-            this.pieceGfx.fillStyle(COLOR_LIGHT[p.color], 0.7);
-            if (p.color===0) { this.pieceGfx.fillCircle(pos.x, py, iconS*sc); }
-            else if (p.color===1) { // diamond
-                const d=iconS*sc;
-                this.pieceGfx.fillTriangle(pos.x,py-d, pos.x+d,py, pos.x,py+d);
-                this.pieceGfx.fillTriangle(pos.x,py-d, pos.x-d,py, pos.x,py+d);
-            }
-            else if (p.color===2) { // triangle
-                const d=iconS*sc;
-                this.pieceGfx.fillTriangle(pos.x,py-d, pos.x-d,py+d, pos.x+d,py+d);
-            }
-            else if (p.color===3) { // star (simple cross)
-                const d=iconS*sc*0.5;
-                this.pieceGfx.fillRect(pos.x-d, py-iconS*sc, d*2, iconS*sc*2);
-                this.pieceGfx.fillRect(pos.x-iconS*sc, py-d, iconS*sc*2, d*2);
-            }
-            else { // cross
-                const d=iconS*sc*0.4;
-                this.pieceGfx.fillRect(pos.x-d, py-iconS*sc, d*2, iconS*sc*2);
-                this.pieceGfx.fillRect(pos.x-iconS*sc, py-d, iconS*sc*2, d*2);
+        const ps = this.cellSize - 4;
+        const half = ps / 2;
+        const iconS = ps * 0.15;
+
+        for (let c = 0; c < COLS; c++) {
+            for (let r = 0; r < ROWS; r++) {
+                const p = this.grid[c][r];
+                if (!p) continue;
+                const pos = this.cellCenter(c, r);
+                const py = pos.y + (p.offsetY || 0);
+                const inCh = this.inChain({ col: c, row: r });
+                const sc = inCh ? 1.12 : 1;
+                const hs = half * sc;
+
+                this.pieceGfx.fillStyle(COLORS[p.color]);
+                this.pieceGfx.fillRoundedRect(pos.x - hs, py - hs, hs * 2, hs * 2, 6 * sc);
+
+                this.pieceGfx.fillStyle(COLOR_LIGHT[p.color], 0.7);
+                const is = iconS * sc;
+                if (p.color === 0) {
+                    this.pieceGfx.fillCircle(pos.x, py, is);
+                } else if (p.color === 1) {
+                    this.pieceGfx.fillTriangle(pos.x, py - is, pos.x + is, py, pos.x, py + is);
+                    this.pieceGfx.fillTriangle(pos.x, py - is, pos.x - is, py, pos.x, py + is);
+                } else if (p.color === 2) {
+                    this.pieceGfx.fillTriangle(pos.x, py - is, pos.x - is, py + is, pos.x + is, py + is);
+                } else if (p.color === 3) {
+                    const d = is * 0.5;
+                    this.pieceGfx.fillRect(pos.x - d, py - is, d * 2, is * 2);
+                    this.pieceGfx.fillRect(pos.x - is, py - d, is * 2, d * 2);
+                } else {
+                    const d = is * 0.4;
+                    this.pieceGfx.fillRect(pos.x - d, py - is, d * 2, is * 2);
+                    this.pieceGfx.fillRect(pos.x - is, py - d, is * 2, d * 2);
+                }
             }
         }
     }
 
     drawChain() {
         this.chainGfx.clear();
-        if (this.chain.length<2) return;
-        const first = this.chain[0], last = this.chain[this.chain.length-1];
-        const isLoopReady = this.chain.length>=4 && this.isAdj(last, first);
-        this.chainGfx.lineStyle(3, isLoopReady?0xffffff:0xffffff, isLoopReady?0.8:0.6);
+        if (this.chain.length < 2) return;
+        const first = this.chain[0], last = this.chain[this.chain.length - 1];
+        const isLoopReady = this.chain.length >= 4 && this.isAdj(last, first);
+        this.chainGfx.lineStyle(3, 0xffffff, isLoopReady ? 0.8 : 0.6);
         const p0 = this.cellCenter(this.chain[0].col, this.chain[0].row);
-        this.chainGfx.beginPath(); this.chainGfx.moveTo(p0.x, p0.y);
-        for (let i=1;i<this.chain.length;i++) { const p = this.cellCenter(this.chain[i].col, this.chain[i].row); this.chainGfx.lineTo(p.x, p.y); }
+        this.chainGfx.beginPath();
+        this.chainGfx.moveTo(p0.x, p0.y);
+        for (let i = 1; i < this.chain.length; i++) {
+            const p = this.cellCenter(this.chain[i].col, this.chain[i].row);
+            this.chainGfx.lineTo(p.x, p.y);
+        }
         if (isLoopReady) this.chainGfx.lineTo(p0.x, p0.y);
         this.chainGfx.strokePath();
-        // Loop indicator glow
         if (isLoopReady) {
             this.chainGfx.lineStyle(2, 0xffffff, 0.5);
-            this.chainGfx.strokeCircle(p0.x, p0.y, this.cellSize*0.4);
+            this.chainGfx.strokeCircle(p0.x, p0.y, this.cellSize * 0.4);
         }
     }
 
-    hasValidChain() {
-        // BFS: check if any group of 3+ same-color connected pieces exists
-        const visited = Array.from({length:COLS}, ()=>Array(ROWS).fill(false));
-        for (let c=0;c<COLS;c++) for(let r=0;r<ROWS;r++) {
-            if (visited[c][r] || !this.grid[c][r]) continue;
-            const color = this.grid[c][r].color;
-            const queue = [{col:c,row:r}]; visited[c][r]=true; let count=0;
-            while(queue.length) {
-                const cur = queue.shift(); count++;
-                for (let dc=-1;dc<=1;dc++) for(let dr=-1;dr<=1;dr++) {
-                    if (dc===0&&dr===0) continue;
-                    const nc=cur.col+dc, nr=cur.row+dr;
-                    if (nc<0||nc>=COLS||nr<0||nr>=ROWS||visited[nc][nr]) continue;
-                    if (this.grid[nc][nr] && this.grid[nc][nr].color===color) { visited[nc][nr]=true; queue.push({col:nc,row:nr}); }
-                }
-            }
-            if (count>=3) return true;
-        }
-        return false;
-    }
-
-    formatTime(s) { const m=Math.floor(s/60); const ss=Math.floor(s%60); return m+':'+(ss<10?'0':'')+ss; }
+    // --- Game loop ---
 
     update(time, delta) {
-        const dt = delta/1000;
-        if (this.state==='menu') { this.menuTap.setAlpha(0.5+Math.sin(time/400)*0.5); return; }
-        if (this.state==='dead') { this.deathRetry.setAlpha(0.5+Math.sin(time/400)*0.5); return; }
-        if (this.state!=='playing') return;
+        const dt = delta / 1000;
+
+        if (this.state === 'menu') {
+            this.menuTap.setAlpha(0.5 + Math.sin(time / 400) * 0.5);
+            return;
+        }
+
+        if (this.state === 'dead') {
+            this.deathRetry.setAlpha(0.5 + Math.sin(time / 400) * 0.5);
+            return;
+        }
+
+        if (this.state !== 'playing') return;
 
         this.gameTime += dt;
         this.timerText.setText(this.formatTime(this.gameTime));
@@ -339,27 +474,37 @@ class GameScene extends Phaser.Scene {
         // Fall animation
         if (this.fallAnim) {
             this.fallAnim.t += dt;
-            const prog = Math.min(1, this.fallAnim.t / (this.fallAnim.duration/1000));
-            const ease = prog < 1 ? 1 - Math.pow(1-prog, 3) : 1;
-            for (let c=0;c<COLS;c++) for(let r=0;r<ROWS;r++) {
-                const p = this.grid[c][r]; if (!p) continue;
-                if (p.offsetY) p.offsetY *= (1-ease);
-                if (Math.abs(p.offsetY||0)<0.5) p.offsetY=0;
+            const prog = Math.min(1, this.fallAnim.t / this.fallAnim.duration);
+            const ease = 1 - Math.pow(1 - prog, 3);
+            for (let c = 0; c < COLS; c++) {
+                for (let r = 0; r < ROWS; r++) {
+                    const p = this.grid[c][r];
+                    if (!p) continue;
+                    if (p.offsetY) p.offsetY *= (1 - ease);
+                    if (Math.abs(p.offsetY || 0) < 0.5) p.offsetY = 0;
+                }
             }
-            if (prog>=1) {
+            if (prog >= 1) {
                 this.fallAnim = null;
-                // Squash on land
-                for (let c=0;c<COLS;c++) for(let r=0;r<ROWS;r++) {
-                    const p=this.grid[c][r]; if(p) { p.offsetY=0; p.scale=1; }
+                for (let c = 0; c < COLS; c++) {
+                    for (let r = 0; r < ROWS; r++) {
+                        const p = this.grid[c][r];
+                        if (p) p.offsetY = 0;
+                    }
                 }
                 if (navigator.vibrate) navigator.vibrate(5);
-                // Check stalemate
                 if (!this.hasValidChain()) {
-                    // Reshuffle
-                    for (let c=0;c<COLS;c++) for(let r=0;r<ROWS;r++) {
-                        if (this.grid[c][r]) this.grid[c][r].color = Phaser.Math.Between(0,NUM_COLORS-1);
+                    for (let c = 0; c < COLS; c++) {
+                        for (let r = 0; r < ROWS; r++) {
+                            if (this.grid[c][r]) {
+                                this.grid[c][r].color = Phaser.Math.Between(0, NUM_COLORS - 1);
+                            }
+                        }
                     }
-                    if (!this.hasValidChain()) { this.gameOver(); return; }
+                    if (!this.hasValidChain()) {
+                        this.gameOver();
+                        return;
+                    }
                 }
             }
             this.drawPieces();
@@ -368,42 +513,29 @@ class GameScene extends Phaser.Scene {
         // Particles
         this.particleGfx.clear();
         this.particles = this.particles.filter(p => {
-            p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*4;
-            if(p.life<=0) return false;
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.life -= dt * 4;
+            if (p.life <= 0) return false;
             this.particleGfx.fillStyle(p.color, p.life);
-            this.particleGfx.fillCircle(p.x, p.y, p.size*p.life);
+            this.particleGfx.fillCircle(p.x, p.y, p.size * p.life);
             return true;
         });
-
-        // Popups
-        this.uiGfx.clear();
-        this.popups = this.popups.filter(p => {
-            p.life -= dt*2.5; p.y -= 40*dt;
-            if (p.life<=0) return false;
-            // Draw popup text via graphics (approximate with score text positioning)
-            return true;
-        });
-    }
-
-    gameOver() {
-        this.state = 'dead';
-        if (this.score > this.best) { this.best = this.score; localStorage.setItem('chain-best', this.best.toString()); }
-        const w = this.scale.width, h = this.scale.height;
-        this.deathOvl.clear(); this.deathOvl.fillStyle(0x000000,0.75); this.deathOvl.fillRect(0,0,w,h);
-        this.deathScore.setText(this.score.toString()).setPosition(w/2, h*0.38);
-        this.deathBest.setText('Best: '+this.best).setPosition(w/2, h*0.48);
-        this.deathTime.setText('Time: '+this.formatTime(this.gameTime)).setPosition(w/2, h*0.54);
-        this.deathRetry.setPosition(w/2, h*0.68);
-        this.deathC.setVisible(true);
     }
 }
 
 new Phaser.Game({
     type: Phaser.AUTO,
-    scale: { mode: Phaser.Scale.RESIZE, parent:'game', width:'100%', height:'100%', autoCenter: Phaser.Scale.CENTER_BOTH },
+    scale: {
+        mode: Phaser.Scale.RESIZE,
+        parent: 'game',
+        width: '100%',
+        height: '100%',
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
     backgroundColor: '#0a0a14',
     scene: [GameScene],
-    physics: { default:'arcade', arcade:{ gravity:{x:0,y:0}, debug:false } }
+    input: { activePointers: 1 }
 });
 </script>
 </body>
