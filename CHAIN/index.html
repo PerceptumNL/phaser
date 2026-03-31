@@ -15,7 +15,31 @@ html, body { margin:0; padding:0; overflow:hidden; touch-action:none; overscroll
 <script>
 const COLS = 7, ROWS = 9, NUM_COLORS = 5;
 const COLORS = [0xef4444, 0x3b82f6, 0x22c55e, 0xeab308, 0xa855f7];
+const COLOR_NAMES = ['red', 'blue', 'green', 'yellow', 'purple'];
+const COLOR_HEX = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'];
 const COLOR_LIGHT = [0xf87171, 0x60a5fa, 0x4ade80, 0xfacc15, 0xc084fc];
+
+// Target types: clearColor, clearTotal, chainLength, loops
+const LEVELS = [
+    { target: 'clearTotal',  amount: 10, moves: 12, label: 'Clear 10 pieces' },
+    { target: 'clearTotal',  amount: 15, moves: 12, label: 'Clear 15 pieces' },
+    { target: 'clearColor',  color: 0, amount: 10, moves: 10, label: 'Clear 10 red' },
+    { target: 'chainLength', amount: 5,  count: 2, moves: 10, label: 'Make 2 chains of 5+' },
+    { target: 'clearColor',  color: 1, amount: 12, moves: 10, label: 'Clear 12 blue' },
+    { target: 'clearTotal',  amount: 25, moves: 10, label: 'Clear 25 pieces' },
+    { target: 'loops',       amount: 1,  moves: 12, label: 'Make a loop' },
+    { target: 'clearColor',  color: 2, amount: 15, moves: 10, label: 'Clear 15 green' },
+    { target: 'chainLength', amount: 6,  count: 2, moves: 10, label: '2 chains of 6+' },
+    { target: 'clearTotal',  amount: 30, moves: 9,  label: 'Clear 30 pieces' },
+    { target: 'loops',       amount: 2,  moves: 12, label: 'Make 2 loops' },
+    { target: 'clearColor',  color: 4, amount: 18, moves: 10, label: 'Clear 18 purple' },
+    { target: 'chainLength', amount: 7,  count: 2, moves: 9,  label: '2 chains of 7+' },
+    { target: 'clearTotal',  amount: 40, moves: 9,  label: 'Clear 40 pieces' },
+    { target: 'loops',       amount: 3,  moves: 12, label: 'Make 3 loops' },
+];
+
+const COMBO_DURATION = 3.5; // seconds
+const COMBO_MAX = 8;
 
 class GameScene extends Phaser.Scene {
     constructor() { super('GameScene'); }
@@ -27,12 +51,23 @@ class GameScene extends Phaser.Scene {
         this.state = 'menu';
         this.score = 0;
         this.best = parseInt(localStorage.getItem('chain-best') || '0');
+        this.bestLevel = parseInt(localStorage.getItem('chain-best-level') || '0');
         this.grid = [];
         this.chain = [];
         this.isDragging = false;
         this.gameTime = 0;
         this.particles = [];
         this.fallAnim = null;
+        this.popups = [];
+
+        // Level state
+        this.level = 0;
+        this.movesLeft = 0;
+        this.targetProgress = 0;
+
+        // Combo state
+        this.comboTimer = 0;
+        this.comboMultiplier = 1;
 
         // Layout
         const margin = 16;
@@ -40,7 +75,7 @@ class GameScene extends Phaser.Scene {
         const boardW = this.cellSize * COLS;
         const boardH = this.cellSize * ROWS;
         this.boardLeft = Math.floor((w - boardW) / 2);
-        this.boardTop = Math.floor(h * 0.10);
+        this.boardTop = Math.floor(h * 0.13);
         if (this.boardTop + boardH > h * 0.85) this.boardTop = Math.floor(h * 0.85 - boardH);
 
         // Graphics layers
@@ -48,11 +83,28 @@ class GameScene extends Phaser.Scene {
         this.pieceGfx = this.add.graphics();
         this.chainGfx = this.add.graphics();
         this.particleGfx = this.add.graphics();
+        this.hudGfx = this.add.graphics();
 
         // HUD text (hidden until game starts)
-        this.scoreText = this.add.text(w / 2, h * 0.04, '0', {
-            fontSize: '44px', fontStyle: 'bold', color: '#ffffff'
+        this.scoreText = this.add.text(w / 2, h * 0.02, '0', {
+            fontSize: '40px', fontStyle: 'bold', color: '#ffffff'
         }).setOrigin(0.5, 0).setAlpha(0);
+
+        this.comboText = this.add.text(w - 16, h * 0.025, '', {
+            fontSize: '28px', fontStyle: 'bold', color: '#ffd700'
+        }).setOrigin(1, 0).setAlpha(0);
+
+        this.levelText = this.add.text(16, h * 0.02, '', {
+            fontSize: '16px', fontStyle: 'bold', color: '#888899'
+        }).setOrigin(0, 0).setAlpha(0);
+
+        this.targetText = this.add.text(w / 2, h * 0.09, '', {
+            fontSize: '18px', fontStyle: 'bold', color: '#aaaacc', align: 'center'
+        }).setOrigin(0.5, 0).setAlpha(0);
+
+        this.movesText = this.add.text(16, h * 0.045, '', {
+            fontSize: '24px', fontStyle: 'bold', color: '#e0e0f0'
+        }).setOrigin(0, 0).setAlpha(0);
 
         this.timerText = this.add.text(w / 2, h * 0.92, '0:00', {
             fontSize: '20px', color: '#ffffff'
@@ -63,37 +115,63 @@ class GameScene extends Phaser.Scene {
         }).setOrigin(0.5).setAlpha(0);
 
         // Menu screen
-        this.menuTitle = this.add.text(w / 2, h * 0.25, 'CHAIN', {
+        this.menuTitle = this.add.text(w / 2, h * 0.22, 'CHAIN', {
             fontSize: '64px', fontStyle: 'bold', color: '#e0e0f0'
         }).setOrigin(0.5);
 
-        this.menuSub = this.add.text(w / 2, h * 0.34, 'draw to match', {
+        this.menuSub = this.add.text(w / 2, h * 0.31, 'draw to match', {
             fontSize: '20px', color: '#888899'
         }).setOrigin(0.5);
 
-        this.menuInstr = this.add.text(w / 2, h * 0.44, 'drag through same colors\n3 or more to clear', {
+        this.menuInstr = this.add.text(w / 2, h * 0.41, 'drag through same colors\n3 or more to clear\ncomplete targets to advance', {
             fontSize: '16px', color: '#666677', align: 'center'
         }).setOrigin(0.5);
 
-        this.menuTap = this.add.text(w / 2, h * 0.58, 'tap to start', {
+        this.menuTap = this.add.text(w / 2, h * 0.55, 'tap to start', {
             fontSize: '24px', color: '#ffd700'
         }).setOrigin(0.5);
 
+        this.menuBestLevel = this.add.text(w / 2, h * 0.64, '', {
+            fontSize: '16px', color: '#666677'
+        }).setOrigin(0.5);
+        if (this.bestLevel > 0) this.menuBestLevel.setText('Best: Level ' + (this.bestLevel + 1));
+
+        // Level complete overlay
+        this.lcOverlay = this.add.graphics().setVisible(false);
+        this.lcTitle = this.add.text(w / 2, h * 0.30, '', {
+            fontSize: '32px', fontStyle: 'bold', color: '#ffd700'
+        }).setOrigin(0.5).setVisible(false);
+        this.lcScore = this.add.text(w / 2, h * 0.40, '', {
+            fontSize: '22px', color: '#e0e0f0'
+        }).setOrigin(0.5).setVisible(false);
+        this.lcBonus = this.add.text(w / 2, h * 0.47, '', {
+            fontSize: '18px', color: '#22c55e'
+        }).setOrigin(0.5).setVisible(false);
+        this.lcNext = this.add.text(w / 2, h * 0.60, 'tap to continue', {
+            fontSize: '24px', color: '#ffd700'
+        }).setOrigin(0.5).setVisible(false);
+
         // Death screen (hidden)
         this.deathOverlay = this.add.graphics().setVisible(false);
-        this.deathScoreLabel = this.add.text(w / 2, h * 0.30, 'Score', {
+        this.deathTitle = this.add.text(w / 2, h * 0.22, 'Game Over', {
+            fontSize: '36px', fontStyle: 'bold', color: '#e0e0f0'
+        }).setOrigin(0.5).setVisible(false);
+        this.deathLevelVal = this.add.text(w / 2, h * 0.32, '', {
+            fontSize: '20px', color: '#888899'
+        }).setOrigin(0.5).setVisible(false);
+        this.deathScoreLabel = this.add.text(w / 2, h * 0.38, 'Score', {
             fontSize: '22px', color: '#888899'
         }).setOrigin(0.5).setVisible(false);
-        this.deathScoreVal = this.add.text(w / 2, h * 0.38, '', {
+        this.deathScoreVal = this.add.text(w / 2, h * 0.46, '', {
             fontSize: '56px', fontStyle: 'bold', color: '#e0e0f0'
         }).setOrigin(0.5).setVisible(false);
-        this.deathBestVal = this.add.text(w / 2, h * 0.48, '', {
+        this.deathBestVal = this.add.text(w / 2, h * 0.56, '', {
             fontSize: '22px', color: '#ffd700'
         }).setOrigin(0.5).setVisible(false);
-        this.deathTimeVal = this.add.text(w / 2, h * 0.54, '', {
+        this.deathTimeVal = this.add.text(w / 2, h * 0.62, '', {
             fontSize: '18px', color: '#666677'
         }).setOrigin(0.5).setVisible(false);
-        this.deathRetry = this.add.text(w / 2, h * 0.68, 'tap to retry', {
+        this.deathRetry = this.add.text(w / 2, h * 0.74, 'tap to retry', {
             fontSize: '24px', color: '#ffd700'
         }).setOrigin(0.5).setVisible(false);
 
@@ -141,29 +219,138 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    // --- Level system ---
+
+    getLevelConfig() {
+        if (this.level < LEVELS.length) return LEVELS[this.level];
+        // Beyond defined levels: generate harder random targets
+        const types = ['clearTotal', 'clearColor', 'chainLength', 'loops'];
+        const type = types[this.level % types.length];
+        const difficulty = Math.floor(this.level / 4) + 4;
+        if (type === 'clearTotal') return { target: 'clearTotal', amount: 25 + difficulty * 5, moves: 8, label: 'Clear ' + (25 + difficulty * 5) + ' pieces' };
+        if (type === 'clearColor') { const c = this.level % NUM_COLORS; return { target: 'clearColor', color: c, amount: 12 + difficulty * 3, moves: 9, label: 'Clear ' + (12 + difficulty * 3) + ' ' + COLOR_NAMES[c] }; }
+        if (type === 'chainLength') return { target: 'chainLength', amount: 5 + Math.floor(difficulty / 2), count: 2, moves: 9, label: '2 chains of ' + (5 + Math.floor(difficulty / 2)) + '+' };
+        return { target: 'loops', amount: 2 + Math.floor(difficulty / 3), moves: 10, label: 'Make ' + (2 + Math.floor(difficulty / 3)) + ' loops' };
+    }
+
+    startLevel() {
+        const cfg = this.getLevelConfig();
+        this.movesLeft = cfg.moves;
+        this.targetProgress = 0;
+        this.comboTimer = 0;
+        this.comboMultiplier = 1;
+        this.updateHUD();
+    }
+
+    checkTarget(clearedPieces, chainLength, wasLoop, clearedColor) {
+        const cfg = this.getLevelConfig();
+        if (cfg.target === 'clearTotal') {
+            this.targetProgress += clearedPieces;
+        } else if (cfg.target === 'clearColor') {
+            this.targetProgress += clearedColor;
+        } else if (cfg.target === 'chainLength') {
+            if (chainLength >= cfg.amount) this.targetProgress += 1;
+        } else if (cfg.target === 'loops') {
+            if (wasLoop) this.targetProgress += 1;
+        }
+
+        const needed = cfg.target === 'chainLength' ? cfg.count : cfg.amount;
+        if (this.targetProgress >= needed) {
+            this.levelComplete();
+            return;
+        }
+
+        this.movesLeft--;
+        if (this.movesLeft <= 0) {
+            this.gameOver();
+        }
+        this.updateHUD();
+    }
+
+    levelComplete() {
+        this.state = 'levelComplete';
+        const bonus = this.movesLeft * 50;
+        this.score += bonus;
+
+        if (this.level > this.bestLevel) {
+            this.bestLevel = this.level;
+            localStorage.setItem('chain-best-level', this.bestLevel.toString());
+        }
+
+        const w = this.scale.width, h = this.scale.height;
+        this.lcOverlay.clear();
+        this.lcOverlay.fillStyle(0x000000, 0.7);
+        this.lcOverlay.fillRect(0, 0, w, h);
+        this.lcOverlay.setVisible(true);
+        this.lcTitle.setText('Level ' + (this.level + 1) + ' Complete!').setVisible(true);
+        this.lcScore.setText('Score: ' + this.score).setVisible(true);
+        this.lcBonus.setText(bonus > 0 ? '+' + bonus + ' move bonus' : '').setVisible(true);
+        this.lcNext.setVisible(true);
+    }
+
+    hideLevelComplete() {
+        this.lcOverlay.setVisible(false);
+        this.lcTitle.setVisible(false);
+        this.lcScore.setVisible(false);
+        this.lcBonus.setVisible(false);
+        this.lcNext.setVisible(false);
+    }
+
+    advanceLevel() {
+        this.hideLevelComplete();
+        this.level++;
+        this.state = 'playing';
+        this.startLevel();
+        this.initBoard();
+        this.drawBoard();
+        this.drawPieces();
+    }
+
+    // --- Combo system ---
+
+    triggerCombo() {
+        if (this.comboTimer > 0) {
+            this.comboMultiplier = Math.min(this.comboMultiplier + 1, COMBO_MAX);
+        } else {
+            this.comboMultiplier = 1;
+        }
+        this.comboTimer = COMBO_DURATION;
+    }
+
     // --- State transitions ---
 
     startGame() {
         this.state = 'playing';
         this.score = 0;
         this.gameTime = 0;
+        this.level = 0;
         this.chain = [];
         this.particles = [];
+        this.popups = [];
         this.fallAnim = null;
+        this.comboTimer = 0;
+        this.comboMultiplier = 1;
 
         // Hide menus
         this.menuTitle.setVisible(false);
         this.menuSub.setVisible(false);
         this.menuInstr.setVisible(false);
         this.menuTap.setVisible(false);
+        this.menuBestLevel.setVisible(false);
         this.hideDeathScreen();
+        this.hideLevelComplete();
 
         // Show HUD
-        this.scoreText.setText('0').setAlpha(0.4);
+        this.scoreText.setAlpha(0.4);
+        this.comboText.setAlpha(0);
+        this.levelText.setAlpha(0.4);
+        this.targetText.setAlpha(0.5);
+        this.movesText.setAlpha(0.6);
         this.timerText.setAlpha(0.25);
         this.bestLabel.setText('Best: ' + this.best).setAlpha(0.2);
 
         this.initBoard();
+        this.startLevel();
         this.drawBoard();
         this.drawPieces();
     }
@@ -174,6 +361,8 @@ class GameScene extends Phaser.Scene {
         this.deathOverlay.fillStyle(0x000000, 0.75);
         this.deathOverlay.fillRect(0, 0, w, h);
         this.deathOverlay.setVisible(true);
+        this.deathTitle.setVisible(true);
+        this.deathLevelVal.setText('Reached Level ' + (this.level + 1)).setVisible(true);
         this.deathScoreLabel.setVisible(true);
         this.deathScoreVal.setText(this.score.toString()).setVisible(true);
         this.deathBestVal.setText('Best: ' + this.best).setVisible(true);
@@ -183,6 +372,8 @@ class GameScene extends Phaser.Scene {
 
     hideDeathScreen() {
         this.deathOverlay.setVisible(false);
+        this.deathTitle.setVisible(false);
+        this.deathLevelVal.setVisible(false);
         this.deathScoreLabel.setVisible(false);
         this.deathScoreVal.setVisible(false);
         this.deathBestVal.setVisible(false);
@@ -196,7 +387,67 @@ class GameScene extends Phaser.Scene {
             this.best = this.score;
             localStorage.setItem('chain-best', this.best.toString());
         }
+        if (this.level > this.bestLevel) {
+            this.bestLevel = this.level;
+            localStorage.setItem('chain-best-level', this.bestLevel.toString());
+        }
         this.showDeathScreen();
+    }
+
+    // --- HUD ---
+
+    updateHUD() {
+        const cfg = this.getLevelConfig();
+        const needed = cfg.target === 'chainLength' ? cfg.count : cfg.amount;
+        const prog = Math.min(this.targetProgress, needed);
+
+        this.levelText.setText('Level ' + (this.level + 1));
+        this.scoreText.setText(this.score.toString());
+
+        // Color the target text for clearColor targets
+        if (cfg.target === 'clearColor') {
+            this.targetText.setText(cfg.label + '  (' + prog + '/' + needed + ')');
+            this.targetText.setColor(COLOR_HEX[cfg.color]);
+        } else {
+            this.targetText.setText(cfg.label + '  (' + prog + '/' + needed + ')');
+            this.targetText.setColor('#aaaacc');
+        }
+
+        // Moves — turn red when low
+        this.movesText.setText(this.movesLeft + ' moves');
+        if (this.movesLeft <= 2) {
+            this.movesText.setColor('#ef4444');
+        } else if (this.movesLeft <= 4) {
+            this.movesText.setColor('#eab308');
+        } else {
+            this.movesText.setColor('#e0e0f0');
+        }
+
+        // Combo
+        if (this.comboMultiplier > 1) {
+            this.comboText.setText(this.comboMultiplier + 'x').setAlpha(0.8);
+        } else {
+            this.comboText.setAlpha(0);
+        }
+    }
+
+    drawComboBar() {
+        this.hudGfx.clear();
+        if (this.comboTimer <= 0 || this.state !== 'playing') return;
+
+        const w = this.scale.width;
+        const frac = this.comboTimer / COMBO_DURATION;
+        const barW = (w - 32) * frac;
+        const barY = this.boardTop - 6;
+
+        // Bar color shifts from gold to red as it depletes
+        const r = Math.floor(0xff);
+        const g = Math.floor(0xd7 * frac);
+        const b = 0x00;
+        const color = (r << 16) | (g << 8) | b;
+
+        this.hudGfx.fillStyle(color, 0.6);
+        this.hudGfx.fillRoundedRect(16, barY, barW, 4, 2);
     }
 
     // --- Input ---
@@ -204,6 +455,7 @@ class GameScene extends Phaser.Scene {
     onDown(p) {
         if (this.state === 'menu') { this.startGame(); return; }
         if (this.state === 'dead') { this.startGame(); return; }
+        if (this.state === 'levelComplete') { this.advanceLevel(); return; }
         if (this.state !== 'playing' || this.fallAnim) return;
 
         const cell = this.getCellAt(p);
@@ -253,7 +505,7 @@ class GameScene extends Phaser.Scene {
             if (isLoop) {
                 this.clearLoop(this.grid[first.col][first.row].color);
             } else {
-                this.clearChain();
+                this.clearChainPieces();
             }
         }
 
@@ -264,38 +516,92 @@ class GameScene extends Phaser.Scene {
 
     // --- Clearing ---
 
-    clearChain() {
-        const len = this.chain.length;
-        const pts = len <= 3 ? 30 : len === 4 ? 60 : len === 5 ? 100 : 100 + (len - 5) * 50;
-        this.score += pts;
-        this.scoreText.setText(this.score.toString());
+    spawnScorePopup(x, y, pts) {
+        this.popups.push({
+            x, y,
+            text: '+' + pts + (this.comboMultiplier > 1 ? ' (' + this.comboMultiplier + 'x)' : ''),
+            life: 1,
+            big: pts >= 200
+        });
+    }
 
+    clearChainPieces() {
+        const len = this.chain.length;
+        const basePts = len <= 3 ? 30 : len === 4 ? 60 : len === 5 ? 100 : 100 + (len - 5) * 50;
+
+        this.triggerCombo();
+        const pts = basePts * this.comboMultiplier;
+        this.score += pts;
+
+        // Calculate center of chain for popup
+        let cx = 0, cy = 0;
         for (const c of this.chain) {
             const pos = this.cellCenter(c.col, c.row);
-            this.spawnParticles(pos.x, pos.y, this.grid[c.col][c.row].color);
+            cx += pos.x; cy += pos.y;
+        }
+        cx /= this.chain.length; cy /= this.chain.length;
+        this.spawnScorePopup(cx, cy, pts);
+
+        // Count cleared per color for target tracking
+        const colorCount = [0, 0, 0, 0, 0];
+        for (const c of this.chain) {
+            const piece = this.grid[c.col][c.row];
+            colorCount[piece.color]++;
+            const pos = this.cellCenter(c.col, c.row);
+            this.spawnParticles(pos.x, pos.y, piece.color);
             this.grid[c.col][c.row] = null;
         }
+
+        this.scoreText.setText(this.score.toString());
         this.applyGravity();
+
+        // Track target — use color of the chain
+        const chainColor = this.grid[this.chain[0]?.col]?.[this.chain[0]?.row]?.color;
+        const cfg = this.getLevelConfig();
+        let colorCleared = 0;
+        if (cfg.target === 'clearColor') colorCleared = colorCount[cfg.color] || 0;
+
+        this.checkTarget(len, len, false, colorCleared);
     }
 
     clearLoop(color) {
         let cleared = 0;
+        let cx = 0, cy = 0;
+        const colorCount = [0, 0, 0, 0, 0];
+
         for (let c = 0; c < COLS; c++) {
             for (let r = 0; r < ROWS; r++) {
                 if (this.grid[c][r] && this.grid[c][r].color === color) {
                     const pos = this.cellCenter(c, r);
                     this.spawnParticles(pos.x, pos.y, color);
+                    cx += pos.x; cy += pos.y;
+                    colorCount[this.grid[c][r].color]++;
                     this.grid[c][r] = null;
                     cleared++;
                 }
             }
         }
-        const pts = 200 + cleared * 20;
+
+        this.triggerCombo();
+        const basePts = 200 + cleared * 20;
+        const pts = basePts * this.comboMultiplier;
         this.score += pts;
         this.scoreText.setText(this.score.toString());
+
+        if (cleared > 0) {
+            cx /= cleared; cy /= cleared;
+            this.spawnScorePopup(cx, cy, pts);
+        }
+
         if (navigator.vibrate) navigator.vibrate(60);
         this.cameras.main.shake(130, 0.008);
         this.applyGravity();
+
+        const cfg = this.getLevelConfig();
+        let colorCleared = 0;
+        if (cfg.target === 'clearColor') colorCleared = colorCount[cfg.color] || 0;
+
+        this.checkTarget(cleared, this.chain.length, true, colorCleared);
     }
 
     applyGravity() {
@@ -466,10 +772,26 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
+        if (this.state === 'levelComplete') {
+            this.lcNext.setAlpha(0.5 + Math.sin(time / 400) * 0.5);
+            return;
+        }
+
         if (this.state !== 'playing') return;
 
         this.gameTime += dt;
         this.timerText.setText(this.formatTime(this.gameTime));
+
+        // Combo timer countdown
+        if (this.comboTimer > 0) {
+            this.comboTimer -= dt;
+            if (this.comboTimer <= 0) {
+                this.comboTimer = 0;
+                this.comboMultiplier = 1;
+                this.comboText.setAlpha(0);
+            }
+        }
+        this.drawComboBar();
 
         // Fall animation
         if (this.fallAnim) {
@@ -510,7 +832,7 @@ class GameScene extends Phaser.Scene {
             this.drawPieces();
         }
 
-        // Particles
+        // Particles + popups
         this.particleGfx.clear();
         this.particles = this.particles.filter(p => {
             p.x += p.vx * dt;
@@ -519,6 +841,25 @@ class GameScene extends Phaser.Scene {
             if (p.life <= 0) return false;
             this.particleGfx.fillStyle(p.color, p.life);
             this.particleGfx.fillCircle(p.x, p.y, p.size * p.life);
+            return true;
+        });
+
+        // Score popups — draw as temporary text objects
+        this.popups = this.popups.filter(p => {
+            p.y -= 40 * dt;
+            p.life -= dt * 2.5;
+            if (p.life <= 0) {
+                if (p.obj) p.obj.destroy();
+                return false;
+            }
+            if (!p.obj) {
+                p.obj = this.add.text(p.x, p.y, p.text, {
+                    fontSize: p.big ? '28px' : '22px',
+                    fontStyle: 'bold',
+                    color: p.big ? '#ffd700' : '#ffffff'
+                }).setOrigin(0.5);
+            }
+            p.obj.setPosition(p.x, p.y).setAlpha(p.life);
             return true;
         });
     }
