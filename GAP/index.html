@@ -17,7 +17,7 @@ class GameScene extends Phaser.Scene {
     constructor(){super('GameScene')}
     create(){
         this.state='start';this.score=0;this.best=parseInt(localStorage.getItem('gap-best')||'0');
-        this.walls=[];this.wallSpeed=3;this.gapSize=120;this.particles=[];this.speedLines=[];
+        this.walls=[];this.wallSpeed=3;this.gapSize=120;this.particles=[];this.speedLines=[];this.nearMissFlash=0;
 
         const w=this.scale.width,h=this.scale.height;
         this.gfx=this.add.graphics().setDepth(1);
@@ -95,9 +95,9 @@ class GameScene extends Phaser.Scene {
         if(this.state==='dead'){this.dRetry.setAlpha(0.5+Math.sin(time/400)*0.5);return}
         if(this.state!=='playing')return;
 
-        // Move player toward target
+        // Move player toward target (snappy: ~100ms feel)
         const diff=this.playerTargetY-this.playerY;
-        this.playerY+=diff*0.15;
+        this.playerY+=diff*0.25;
 
         // Move walls
         const speed=Math.min(this.wallSpeed+this.score*0.05,8);
@@ -113,11 +113,18 @@ class GameScene extends Phaser.Scene {
                 // Near miss
                 const distTop=Math.abs(this.playerY-(wall.gapY-wall.gapH/2));
                 const distBot=Math.abs(this.playerY-(wall.gapY+wall.gapH/2));
-                if(Math.min(distTop,distBot)<15){if(navigator.vibrate)navigator.vibrate(50)}
+                if(Math.min(distTop,distBot)<15){
+                    if(navigator.vibrate)navigator.vibrate(50);
+                    this.nearMissFlash=0.3;
+                }
                 // Spawn next
                 this.spawnWall();
-                // Popup
-                this.particles.push({x:this.playerX+30,y:this.playerY,text:true,life:1});
+                // Score popup + burst particles
+                this.particles.push({x:this.playerX+30,y:this.playerY,text:'+1',life:1,size:0});
+                for(let i=0;i<6;i++){
+                    const a=Math.random()*Math.PI*2;
+                    this.particles.push({x:this.playerX,y:this.playerY,vx:Math.cos(a)*60,vy:Math.sin(a)*60,life:0.6,size:3,color:0x00e5ff});
+                }
             }
         }
         // Cull
@@ -164,10 +171,31 @@ class GameScene extends Phaser.Scene {
         this.gfx.fillStyle(0x60f0ff,0.3);
         this.gfx.fillCircle(this.playerX-4,this.playerY-4,8);
 
+        // Near miss flash
+        if(this.nearMissFlash>0){
+            this.partGfx.clear();
+            this.partGfx.lineStyle(3,0xffffff,this.nearMissFlash);
+            this.partGfx.strokeRect(2,2,w-4,h-4);
+            this.nearMissFlash-=dt*2;
+        } else {
+            this.partGfx.clear();
+        }
         // Particles/popups
-        this.partGfx.clear();
         this.particles=this.particles.filter(p=>{
-            p.life-=dt*2.5;p.y-=30*dt;if(p.life<=0)return false;return true;
+            p.life-=dt*2.5;
+            if(p.text){
+                p.y-=40*dt;
+                // Draw score popup text
+                // Use graphics since we can't easily create/destroy text objects
+                this.partGfx.fillStyle(0xffffff,p.life);
+                this.partGfx.fillCircle(p.x,p.y,2);
+                this.partGfx.fillCircle(p.x,p.y-6,2);
+            } else if(p.size>0){
+                p.x+=(p.vx||0)*dt;p.y+=(p.vy||0)*dt;
+                this.partGfx.fillStyle(p.color||0x00e5ff,p.life);
+                this.partGfx.fillCircle(p.x,p.y,p.size*p.life);
+            }
+            return p.life>0;
         });
     }
 }

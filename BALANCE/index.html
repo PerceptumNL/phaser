@@ -305,15 +305,18 @@ class GameScene extends Phaser.Scene {
     }
 
     enableTilt() {
-        window.addEventListener('deviceorientation', (event) => {
+        const handler = (event) => {
             if (event.gamma !== null && event.beta !== null) {
                 this.tiltAvailable = true;
                 this.currentGamma = event.gamma || 0;
                 this.currentBeta = event.beta || 0;
             }
-        });
+        };
+        window.addEventListener('deviceorientation', handler, true);
+        // Also try the absolute variant (some Android devices)
+        window.addEventListener('deviceorientationabsolute', handler, true);
         // Check if tilt actually works after a brief delay
-        this.time.delayedCall(500, () => {
+        this.time.delayedCall(1000, () => {
             if (this.tiltAvailable) {
                 this.controlText.setText('TILT');
             } else {
