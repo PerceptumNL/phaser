@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>LAUNCH</title>
+<style>
+html,body{margin:0;padding:0;overflow:hidden;touch-action:none;overscroll-behavior:none;position:fixed;width:100%;height:100%;background:#0c0c16;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+#game{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+class GameScene extends Phaser.Scene {
+    constructor(){super('GameScene')}
+    create(){
+        this.state='menu';this.score=0;this.best=parseInt(localStorage.getItem('launch-best')||'0');
+        this.platforms=[];this.ballOnPlatform=true;this.aiming=false;this.dragX=0;this.dragY=0;
+        this.level=0;this.particles=[];
+
+        const w=this.scale.width,h=this.scale.height;
+        this.bgGfx=this.add.graphics().setDepth(0);
+        this.gfx=this.add.graphics().setDepth(1);
+        this.aimGfx=this.add.graphics().setDepth(2);
+        this.partGfx=this.add.graphics().setDepth(3);
+
+        // Ball physics
+        this.ball=this.physics.add.sprite(w*0.3,h*0.6);
+        this.ball.setVisible(false).setCircle(15);
+        this.ball.body.setBounce(0.3);this.ball.body.setDrag(200);
+        this.ball.body.setCollideWorldBounds(false);
+        this.ball.setDepth(2);
+
+        this.scoreText=this.add.text(w/2,20,'0',{fontSize:'48px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5,0).setAlpha(0).setDepth(10);
+
+        this.menuC=this.add.container(0,0).setDepth(20);
+        this.menuC.add(this.add.text(w/2,h*0.3,'LAUNCH',{fontSize:'64px',fontStyle:'bold',color:'#f97316'}).setOrigin(0.5));
+        this.menuC.add(this.add.text(w/2,h*0.42,'drag to aim · release to launch',{fontSize:'16px',color:'#888899'}).setOrigin(0.5));
+        this.menuTap=this.add.text(w/2,h*0.6,'tap to start',{fontSize:'24px',color:'#f97316'}).setOrigin(0.5);
+        this.menuC.add(this.menuTap);
+
+        this.deathC=this.add.container(0,0).setDepth(20).setVisible(false);
+        this.deathOvl=this.add.graphics();this.deathC.add(this.deathOvl);
+        this.dScore=this.add.text(w/2,h*0.38,'',{fontSize:'56px',fontStyle:'bold',color:'#e0e0f0'}).setOrigin(0.5);
+        this.dBest=this.add.text(w/2,h*0.48,'',{fontSize:'22px',color:'#ffd700'}).setOrigin(0.5);
+        this.dRetry=this.add.text(w/2,h*0.65,'tap to retry',{fontSize:'24px',color:'#f97316'}).setOrigin(0.5);
+        [this.add.text(w/2,h*0.28,'Platforms',{fontSize:'22px',color:'#888899'}).setOrigin(0.5),this.dScore,this.dBest,this.dRetry].forEach(t=>this.deathC.add(t));
+
+        this.input.on('pointerdown',p=>this.onDown(p));
+        this.input.on('pointermove',p=>this.onMove(p));
+        this.input.on('pointerup',()=>this.onUp());
+
+        this.physics.world.gravity.y=800;
+    }
+
+    onDown(p){
+        if(this.state==='menu'){this.startGame();return}
+        if(this.state==='dead'){this.startGame();return}
+        if(this.state==='playing'&&this.ballOnPlatform){
+            const dist=Phaser.Math.Distance.Between(p.x,p.y,this.ball.x,this.ball.y);
+            if(dist<80){this.aiming=true;this.dragX=p.x;this.dragY=p.y}
+        }
+    }
+
+    onMove(p){if(this.aiming){this.dragX=p.x;this.dragY=p.y}}
+
+    onUp(){
+        if(!this.aiming)return;
+        this.aiming=false;this.aimGfx.clear();
+        const dx=this.ball.x-this.dragX,dy=this.ball.y-this.dragY;
+        const dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist<20)return;
+        const power=Math.min(dist,150)/150;
+        const angle=Math.atan2(dy,dx);
+        const maxV=500;
+        this.ball.body.setVelocity(Math.cos(angle)*power*maxV,Math.sin(angle)*power*maxV);
+        this.ball.body.setAllowGravity(true);
+        this.ballOnPlatform=false;
+    }
+
+    startGame(){
+        this.state='playing';this.score=0;this.level=0;this.particles=[];
+        this.menuC.setVisible(false);this.deathC.setVisible(false);
+        this.scoreText.setText('0').setAlpha(0.35);
+        const w=this.scale.width,h=this.scale.height;
+        this.platforms=[{x:w*0.25,y:h*0.65,w:120,moving:false,my:0,amp:0}];
+        this.ball.setPosition(this.platforms[0].x,this.platforms[0].y-23);
+        this.ball.body.setVelocity(0,0);this.ball.body.setAllowGravity(false);
+        this.ballOnPlatform=true;
+        this.generateNext();
+    }
+
+    generateNext(){
+        const w=this.scale.width,h=this.scale.height;
+        this.level++;
+        const last=this.platforms[this.platforms.length-1];
+        const pw=Math.max(100-this.level*3,40);
+        const gap=Math.min(200+this.level*10,400);
+        const newX=last.x+gap;
+        const newY=Phaser.Math.Clamp(last.y+Phaser.Math.Between(-150,150),100,h-80);
+        const moving=this.level>=13;
+        const amp=moving?40:0;
+        this.platforms.push({x:newX,y:newY,w:pw,moving,baseY:newY,amp,phase:Math.random()*Math.PI*2});
+    }
+
+    die(){
+        this.state='dead';this.cameras.main.shake(100,0.005);
+        if(navigator.vibrate)navigator.vibrate([50,30,50]);
+        if(this.score>this.best){this.best=this.score;localStorage.setItem('launch-best',this.best.toString())}
+        const w=this.scale.width,h=this.scale.height;
+        this.deathOvl.clear();this.deathOvl.fillStyle(0x000000,0.7);this.deathOvl.fillRect(0,0,w,h);
+        this.dScore.setText(this.score.toString()).setPosition(w/2,h*0.38);
+        this.dBest.setText('Best: '+this.best).setPosition(w/2,h*0.48);
+        this.dRetry.setPosition(w/2,h*0.65);
+        this.deathC.setVisible(true);
+    }
+
+    update(time,delta){
+        const dt=delta/1000,w=this.scale.width,h=this.scale.height;
+        if(this.state==='menu'){this.menuTap.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state==='dead'){this.dRetry.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state!=='playing')return;
+
+        // Moving platforms
+        for(const p of this.platforms){
+            if(p.moving)p.y=p.baseY+Math.sin(time*0.002+p.phase)*p.amp;
+        }
+
+        // Camera follow ball
+        const camX=this.ball.x-w*0.35;
+        const camY=this.ball.y-h*0.5;
+        this.cameras.main.scrollX+=(camX-this.cameras.main.scrollX)*0.08;
+        this.cameras.main.scrollY+=(camY-this.cameras.main.scrollY)*0.05;
+
+        // Landing check
+        if(!this.ballOnPlatform&&this.ball.body.velocity.y>0){
+            for(let i=0;i<this.platforms.length;i++){
+                const p=this.platforms[i];
+                if(this.ball.x>=p.x-p.w/2-10&&this.ball.x<=p.x+p.w/2+10&&
+                   this.ball.y+15>=p.y-8&&this.ball.y+15<=p.y+20){
+                    // Landed!
+                    this.ball.body.setVelocity(0,0);
+                    this.ball.body.setAllowGravity(false);
+                    this.ball.setPosition(this.ball.x,p.y-23);
+                    this.ballOnPlatform=true;
+                    if(i>0){
+                        this.score++;this.scoreText.setText(this.score.toString());
+                        if(navigator.vibrate)navigator.vibrate(20);
+                        this.generateNext();
+                        // Cull old platforms
+                        while(this.platforms.length>5)this.platforms.shift();
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Death check: fell too far
+        if(this.ball.y>this.cameras.main.scrollY+h+200){this.die();return}
+
+        // Draw
+        this.gfx.clear();this.bgGfx.clear();this.aimGfx.clear();
+
+        // BG void gradient
+        this.bgGfx.fillStyle(0x0c0c16);
+        this.bgGfx.fillRect(this.cameras.main.scrollX,this.cameras.main.scrollY+h-100,w+200,200);
+
+        // Platforms
+        for(const p of this.platforms){
+            this.gfx.fillStyle(0x2a2a40);
+            this.gfx.fillRoundedRect(p.x-p.w/2,p.y,p.w,16,4);
+            this.gfx.lineStyle(1,0x3a3a5a);
+            this.gfx.strokeRoundedRect(p.x-p.w/2,p.y,p.w,16,4);
+        }
+
+        // Ball
+        if(this.ballOnPlatform||!this.ball.body.allowGravity===false){
+            this.gfx.fillStyle(0x000000,0.2);
+            this.gfx.fillCircle(this.ball.x+2,this.ball.y+17,12);
+        }
+        this.gfx.fillStyle(0xf97316);
+        this.gfx.fillCircle(this.ball.x,this.ball.y,15);
+        this.gfx.fillStyle(0xfbb040,0.4);
+        this.gfx.fillCircle(this.ball.x-3,this.ball.y-3,7);
+
+        // Trail when flying
+        if(!this.ballOnPlatform){
+            const vx=this.ball.body.velocity.x,vy=this.ball.body.velocity.y;
+            const spd=Math.sqrt(vx*vx+vy*vy);
+            if(spd>50){
+                const nx=-vx/spd,ny=-vy/spd;
+                for(let i=1;i<=3;i++){
+                    this.gfx.fillStyle(0xf97316,0.15/i);
+                    this.gfx.fillCircle(this.ball.x+nx*i*8,this.ball.y+ny*i*8,15-i*3);
+                }
+            }
+        }
+
+        // Aim trajectory
+        if(this.aiming){
+            const dx=this.ball.x-this.dragX,dy=this.ball.y-this.dragY;
+            const dist=Math.sqrt(dx*dx+dy*dy);
+            const power=Math.min(dist,150)/150;
+            const angle=Math.atan2(dy,dx);
+            const vx=Math.cos(angle)*power*500,vy=Math.sin(angle)*power*500;
+
+            // Dotted trajectory
+            this.aimGfx.fillStyle(0xffffff,0.4);
+            let tx=this.ball.x,ty=this.ball.y,tvx=vx*0.016,tvy=vy*0.016;
+            for(let i=0;i<8;i++){
+                tx+=tvx;tvy+=800*0.016*0.016;ty+=tvy;
+                this.aimGfx.fillCircle(tx,ty,3-i*0.3);
+            }
+
+            // Power indicator line
+            this.aimGfx.lineStyle(2,0xf97316,0.5);
+            this.aimGfx.lineBetween(this.ball.x,this.ball.y,this.dragX,this.dragY);
+        }
+
+        // Particles
+        this.partGfx.clear();
+        this.particles=this.particles.filter(p=>{
+            p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=200*dt;p.life-=dt*3;
+            if(p.life<=0)return false;
+            this.partGfx.fillStyle(p.color,p.life);this.partGfx.fillCircle(p.x,p.y,2);return true;
+        });
+    }
+}
+
+new Phaser.Game({
+    type:Phaser.AUTO,
+    scale:{mode:Phaser.Scale.RESIZE,parent:'game',width:'100%',height:'100%',autoCenter:Phaser.Scale.CENTER_BOTH},
+    backgroundColor:'#0c0c16',scene:[GameScene],
+    physics:{default:'arcade',arcade:{gravity:{x:0,y:0},debug:false}}
+});
+</script>
+</body>
+</html>

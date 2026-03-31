@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>DROP</title>
+<style>
+html,body{margin:0;padding:0;overflow:hidden;touch-action:none;overscroll-behavior:none;position:fixed;width:100%;height:100%;background:#0c0c14;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+#game{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+class GameScene extends Phaser.Scene {
+    constructor(){super('GameScene')}
+    create(){
+        this.state='menu';this.score=0;this.best=parseInt(localStorage.getItem('drop-best')||'0');
+        this.platforms=[];this.fallSpeed=2;this.baseFall=2;this.maxFall=8;
+        this.currentGamma=0;this.tiltAvailable=false;this.touchSide=0;
+        this.particles=[];this.speedLines=[];this.lastGapX=null;
+
+        const w=this.scale.width,h=this.scale.height;
+        this.gfx=this.add.graphics().setDepth(1);
+        this.bgGfx=this.add.graphics().setDepth(0);
+        this.partGfx=this.add.graphics().setDepth(3);
+
+        this.scoreText=this.add.text(w/2,20,'0',{fontSize:'48px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5,0).setAlpha(0).setDepth(10);
+        this.ctrlText=this.add.text(15,15,'',{fontSize:'12px',color:'#ffffff'}).setAlpha(0).setDepth(10);
+        this.milestoneText=this.add.text(w/2,h/2,'',{fontSize:'56px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5).setAlpha(0).setDepth(10);
+
+        // Menu
+        this.menuC=this.add.container(0,0).setDepth(20);
+        this.menuC.add(this.add.text(w/2,h*0.3,'DROP',{fontSize:'72px',fontStyle:'bold',color:'#39ff14'}).setOrigin(0.5));
+        this.menuC.add(this.add.text(w/2,h*0.42,'tilt to steer · fall through the gaps',{fontSize:'18px',color:'#888899'}).setOrigin(0.5));
+        this.menuTap=this.add.text(w/2,h*0.6,'tap to start',{fontSize:'24px',color:'#39ff14'}).setOrigin(0.5);
+        this.menuC.add(this.menuTap);
+
+        // Death
+        this.deathC=this.add.container(0,0).setDepth(20).setVisible(false);
+        this.deathOvl=this.add.graphics();this.deathC.add(this.deathOvl);
+        this.dScore=this.add.text(w/2,h*0.38,'',{fontSize:'56px',fontStyle:'bold',color:'#e0e0f0'}).setOrigin(0.5);
+        this.dBest=this.add.text(w/2,h*0.48,'',{fontSize:'22px',color:'#ffd700'}).setOrigin(0.5);
+        this.dNew=this.add.text(w/2,h*0.55,'',{fontSize:'20px',fontStyle:'bold',color:'#ff6b6b'}).setOrigin(0.5);
+        this.dRetry=this.add.text(w/2,h*0.68,'tap to retry',{fontSize:'24px',color:'#39ff14'}).setOrigin(0.5);
+        [this.add.text(w/2,h*0.30,'Score',{fontSize:'22px',color:'#888899'}).setOrigin(0.5),this.dScore,this.dBest,this.dNew,this.dRetry].forEach(t=>this.deathC.add(t));
+
+        this.input.on('pointerdown',p=>this.onTap(p));
+        this.input.on('pointermove',p=>{if(p.isDown&&this.state==='playing'){this.touchSide=p.x<w/2?-1:1}});
+        this.input.on('pointerup',()=>{this.touchSide=0});
+
+        // Speed lines
+        for(let i=0;i<15;i++)this.speedLines.push({x:Math.random()*w,y:Math.random()*h,len:20+Math.random()*30,speed:100+Math.random()*100});
+    }
+
+    async onTap(p){
+        const w=this.scale.width;
+        if(this.state==='menu'){
+            if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+                try{const r=await DeviceOrientationEvent.requestPermission();if(r==='granted')this.enableTilt()}catch(e){}
+            }else this.enableTilt();
+            this.startGame();
+        }else if(this.state==='dead'){this.startGame()}
+        else if(this.state==='playing'){this.touchSide=p.x<w/2?-1:1}
+    }
+
+    enableTilt(){
+        window.addEventListener('deviceorientation',e=>{
+            if(e.gamma!==null){this.tiltAvailable=true;this.currentGamma=e.gamma||0}
+        });
+        this.time.delayedCall(500,()=>{
+            this.ctrlText.setText(this.tiltAvailable?'TILT':'TOUCH').setAlpha(0.2);
+            this.time.delayedCall(3000,()=>this.tweens.add({targets:this.ctrlText,alpha:0,duration:500}));
+        });
+    }
+
+    startGame(){
+        this.state='playing';this.score=0;this.fallSpeed=this.baseFall;
+        this.platforms=[];this.lastGapX=null;this.ballX=this.scale.width/2;this.ballY=this.scale.height*0.2;
+        this.worldY=0;this.menuC.setVisible(false);this.deathC.setVisible(false);
+        this.scoreText.setText('0').setAlpha(0.35);
+        // Generate initial platforms
+        const w=this.scale.width,h=this.scale.height;
+        for(let i=1;i<=5;i++)this.generatePlatform(this.ballY+i*250);
+    }
+
+    generatePlatform(y){
+        const w=this.scale.width;
+        const gapW=Math.max(80-Math.floor(this.score/5),40);
+        const maxShift=w*0.7;let gapX;
+        for(let i=0;i<20;i++){
+            gapX=Phaser.Math.Between(20+gapW/2,w-20-gapW/2);
+            if(this.lastGapX===null||Math.abs(gapX-this.lastGapX)<=maxShift)break;
+        }
+        this.lastGapX=gapX;
+        const t=Math.min(this.score/40,1);
+        const color=Phaser.Display.Color.Interpolate.ColorWithColor(
+            new Phaser.Display.Color(30,30,50),new Phaser.Display.Color(42,21,32),1,t
+        );
+        this.platforms.push({y,gapX,gapW,color:Phaser.Display.Color.GetColor(color.r,color.g,color.b),passed:false});
+    }
+
+    die(){
+        this.state='dead';
+        if(navigator.vibrate)navigator.vibrate([50,30,50]);
+        this.cameras.main.shake(100,0.005);
+        let newBest=false;
+        if(this.score>this.best){this.best=this.score;localStorage.setItem('drop-best',this.best.toString());newBest=true}
+        const w=this.scale.width,h=this.scale.height;
+        this.deathOvl.clear();this.deathOvl.fillStyle(0x000000,0.7);this.deathOvl.fillRect(0,0,w,h);
+        this.dScore.setText(this.score.toString()).setPosition(w/2,h*0.38);
+        this.dBest.setText('Best: '+this.best).setPosition(w/2,h*0.48);
+        this.dNew.setText(newBest?'NEW BEST!':'').setPosition(w/2,h*0.55);
+        this.dRetry.setPosition(w/2,h*0.68);
+        this.deathC.setVisible(true);
+    }
+
+    update(time,delta){
+        const dt=delta/1000, w=this.scale.width, h=this.scale.height;
+        if(this.state==='menu'){this.menuTap.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state==='dead'){this.dRetry.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state!=='playing')return;
+
+        // Fall
+        this.fallSpeed=Math.min(this.baseFall+this.score*0.02,this.maxFall);
+        this.ballY+=this.fallSpeed;
+
+        // Tilt / touch
+        const deadZone=3,sensitivity=8,maxH=400;
+        let hSpeed=0;
+        if(this.tiltAvailable){
+            if(Math.abs(this.currentGamma)>deadZone)hSpeed=Phaser.Math.Clamp(this.currentGamma*sensitivity,-maxH,maxH);
+        }else if(this.touchSide!==0){
+            hSpeed=this.touchSide*200;
+        }
+        this.ballX+=hSpeed*dt;
+
+        // Wrap
+        if(this.ballX<0)this.ballX=w;
+        if(this.ballX>w)this.ballX=0;
+
+        // Camera
+        const camY=this.ballY-h*0.3;
+
+        // Check platform collision
+        for(const plat of this.platforms){
+            if(plat.passed)continue;
+            if(this.ballY+12>=plat.y&&this.ballY+12<=plat.y+14){
+                // Check gap
+                const inGap=this.ballX>=plat.gapX-plat.gapW/2+6&&this.ballX<=plat.gapX+plat.gapW/2-6;
+                if(inGap){
+                    plat.passed=true;this.score++;
+                    this.scoreText.setText(this.score.toString());
+                    if(navigator.vibrate)navigator.vibrate(20);
+                    // Milestone
+                    if(this.score%10===0){
+                        this.milestoneText.setText(this.score+'!').setAlpha(1);
+                        this.tweens.add({targets:this.milestoneText,alpha:0,y:h/2-30,duration:800,onComplete:()=>this.milestoneText.y=h/2});
+                    }
+                    // Generate next platform
+                    const spacing=Math.max(250-this.score*3.3,150);
+                    const lastY=this.platforms[this.platforms.length-1].y;
+                    this.generatePlatform(lastY+spacing);
+                }else{
+                    this.die();return;
+                }
+            }
+        }
+
+        // Cull old platforms
+        this.platforms=this.platforms.filter(p=>p.y>camY-100);
+
+        // Draw
+        this.gfx.clear();this.bgGfx.clear();
+
+        // Speed lines
+        this.bgGfx.lineStyle(1,0xffffff,0.05+this.fallSpeed*0.008);
+        for(const sl of this.speedLines){
+            sl.y+=sl.speed*dt*(0.5+this.fallSpeed/this.maxFall);
+            if(sl.y>h){sl.y=0;sl.x=Math.random()*w}
+            this.bgGfx.lineBetween(sl.x,sl.y,sl.x,sl.y+sl.len*(0.5+this.fallSpeed/this.maxFall));
+        }
+
+        // Platforms
+        for(const plat of this.platforms){
+            const py=plat.y-camY;if(py<-20||py>h+20)continue;
+            this.gfx.fillStyle(plat.color);
+            const gl=plat.gapX-plat.gapW/2, gr=plat.gapX+plat.gapW/2;
+            this.gfx.fillRect(0,py,gl,12);
+            this.gfx.fillRect(gr,py,w-gr,12);
+            // Gap glow
+            this.gfx.lineStyle(1,0xffffff,0.15);
+            this.gfx.lineBetween(gl,py,gl,py+12);
+            this.gfx.lineBetween(gr,py,gr,py+12);
+        }
+
+        // Ball
+        const by=this.ballY-camY;
+        // Trail
+        for(let i=1;i<=3;i++){
+            this.gfx.fillStyle(0x39ff14,0.15/i);
+            this.gfx.fillCircle(this.ballX,by-i*8,12-i*2);
+        }
+        // Squash/stretch
+        const speedRatio=Math.abs(hSpeed)/maxH;
+        const sx=1+speedRatio*0.1,sy=1-speedRatio*0.05;
+        // Ball body
+        this.gfx.fillStyle(0x39ff14);
+        this.gfx.fillEllipse(this.ballX,by,12*2*sx,12*2*sy);
+        // Highlight
+        this.gfx.fillStyle(0x80ff60,0.4);
+        this.gfx.fillCircle(this.ballX-2,by-3,5);
+    }
+}
+
+new Phaser.Game({
+    type:Phaser.AUTO,
+    scale:{mode:Phaser.Scale.RESIZE,parent:'game',width:'100%',height:'100%',autoCenter:Phaser.Scale.CENTER_BOTH},
+    backgroundColor:'#0c0c14',scene:[GameScene],
+    physics:{default:'arcade',arcade:{gravity:{x:0,y:0},debug:false}}
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>HOP</title>
+<style>
+html,body{margin:0;padding:0;overflow:hidden;touch-action:none;overscroll-behavior:none;position:fixed;width:100%;height:100%;background:#0a0a14;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+#game{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+class GameScene extends Phaser.Scene {
+    constructor(){super('GameScene')}
+    create(){
+        this.state='menu';this.crossings=0;this.best=parseInt(localStorage.getItem('hop-best')||'0');
+        this.lanes=[];this.playerCol=0;this.playerRow=0;this.moving=false;this.queuedInput=null;
+        this.crossing=1;this.particles=[];
+        this.pointerDownPos=null;this.pointerDownTime=0;
+
+        const w=this.scale.width,h=this.scale.height;
+        this.gfx=this.add.graphics().setDepth(1);
+        this.bgGfx=this.add.graphics().setDepth(0);
+        this.playerGfx=this.add.graphics().setDepth(3);
+        this.partGfx=this.add.graphics().setDepth(5);
+
+        this.scoreText=this.add.text(w/2,15,'0',{fontSize:'44px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5,0).setAlpha(0).setDepth(10);
+        this.crossingText=this.add.text(w/2,60,'',{fontSize:'14px',color:'#888899'}).setOrigin(0.5,0).setAlpha(0).setDepth(10);
+
+        this.menuC=this.add.container(0,0).setDepth(20);
+        this.menuC.add(this.add.text(w/2,h*0.3,'HOP',{fontSize:'72px',fontStyle:'bold',color:'#f0f0f0'}).setOrigin(0.5));
+        this.menuC.add(this.add.text(w/2,h*0.42,'tap to hop · swipe to sidestep',{fontSize:'16px',color:'#888899'}).setOrigin(0.5));
+        this.menuTap=this.add.text(w/2,h*0.6,'tap to start',{fontSize:'24px',color:'#ffd700'}).setOrigin(0.5);
+        this.menuC.add(this.menuTap);
+
+        this.deathC=this.add.container(0,0).setDepth(20).setVisible(false);
+        this.deathOvl=this.add.graphics();this.deathC.add(this.deathOvl);
+        this.dScore=this.add.text(w/2,h*0.36,'',{fontSize:'48px',fontStyle:'bold',color:'#e0e0f0'}).setOrigin(0.5);
+        this.dBest=this.add.text(w/2,h*0.46,'',{fontSize:'22px',color:'#ffd700'}).setOrigin(0.5);
+        this.dNew=this.add.text(w/2,h*0.52,'',{fontSize:'20px',fontStyle:'bold',color:'#ff6b6b'}).setOrigin(0.5);
+        this.dRetry=this.add.text(w/2,h*0.66,'tap to retry',{fontSize:'24px',color:'#ffd700'}).setOrigin(0.5);
+        [this.add.text(w/2,h*0.28,'Crossings',{fontSize:'22px',color:'#888899'}).setOrigin(0.5),this.dScore,this.dBest,this.dNew,this.dRetry].forEach(t=>this.deathC.add(t));
+
+        this.input.on('pointerdown',p=>{
+            if(this.state==='menu'){this.startGame();return}
+            if(this.state==='dead'){this.startGame();return}
+            this.pointerDownPos={x:p.x,y:p.y};this.pointerDownTime=this.time.now;
+        });
+        this.input.on('pointerup',p=>this.handleInput(p));
+    }
+
+    handleInput(p){
+        if(this.state!=='playing'||!this.pointerDownPos)return;
+        const dx=p.x-this.pointerDownPos.x,dy=p.y-this.pointerDownPos.y;
+        const elapsed=this.time.now-this.pointerDownTime;
+        let action=null;
+
+        if(Math.abs(dx)>30&&Math.abs(dy)<15&&elapsed<200){
+            action=dx>0?'right':'left';
+        }else{
+            action=p.y<this.scale.height/2?'up':'down';
+        }
+        this.pointerDownPos=null;
+        if(this.moving){this.queuedInput=action;return}
+        this.doAction(action);
+    }
+
+    doAction(action){
+        if(this.state!=='playing')return;
+        const totalRows=this.lanes.length+2;
+        if(action==='up'&&this.playerRow>0){this.hop(0,-1)}
+        else if(action==='down'&&this.playerRow<totalRows-1){this.hop(0,1)}
+        else if(action==='left'&&this.playerCol>0){this.hop(-1,0)}
+        else if(action==='right'&&this.playerCol<this.gridCols-1){this.hop(1,0)}
+    }
+
+    hop(dc,dr){
+        this.moving=true;
+        if(navigator.vibrate)navigator.vibrate(15);
+        const dur=dr!==0?120:100;
+        this.playerCol+=dc;this.playerRow+=dr;
+
+        // Check goal
+        if(this.playerRow===0){
+            this.moving=false;this.crossings++;this.crossing++;
+            this.scoreText.setText(this.crossings.toString());
+            this.time.delayedCall(500,()=>this.setupCrossing());
+            return;
+        }
+
+        this.time.delayedCall(dur,()=>{
+            this.moving=false;
+            if(this.queuedInput){const q=this.queuedInput;this.queuedInput=null;this.doAction(q)}
+        });
+    }
+
+    calcLayout(){
+        const w=this.scale.width,h=this.scale.height;
+        const totalRows=this.lanes.length+2;
+        this.rowH=Math.floor(h/totalRows);
+        this.gridCols=Math.floor(w/this.rowH);
+        if(this.gridCols<6)this.gridCols=6;
+        this.cellW=Math.floor(w/this.gridCols);
+    }
+
+    startGame(){
+        this.state='playing';this.crossings=0;this.crossing=1;
+        this.menuC.setVisible(false);this.deathC.setVisible(false);
+        this.scoreText.setText('0').setAlpha(0.3);
+        this.crossingText.setAlpha(0.2);
+        this.setupCrossing();
+    }
+
+    setupCrossing(){
+        const numLanes=Math.min(5+this.crossing-1,10);
+        this.lanes=[];
+        for(let i=0;i<numLanes;i++){
+            const isDanger=this.crossing<3||Math.random()>0.3;
+            const dir=i%2===0?1:-1;
+            const minSpd=1+this.crossing*0.15,maxSpd=Math.min(2+this.crossing*0.2,4);
+            const speed=Phaser.Math.FloatBetween(minSpd,maxSpd);
+            const obstacles=[];
+            const count=isDanger?Phaser.Math.Between(2,4):Phaser.Math.Between(2,3);
+            const cellW=isDanger?Phaser.Math.Between(1,3):Phaser.Math.Between(2,4);
+            let x=Math.random()*3;
+            for(let j=0;j<count;j++){
+                obstacles.push({x:x,w:cellW});
+                x+=cellW+Phaser.Math.Between(2,4);
+            }
+            const totalW=x;
+            this.lanes.push({type:isDanger?'danger':'ride',dir,speed,obstacles,totalW,restLane:false});
+        }
+        // Rest lane in middle if >= 8 lanes
+        if(numLanes>=8){const mid=Math.floor(numLanes/2);this.lanes[mid]={type:'safe',dir:0,speed:0,obstacles:[],totalW:0,restLane:true}}
+
+        this.calcLayout();
+        this.playerRow=this.lanes.length+1;
+        this.playerCol=Math.floor(this.gridCols/2);
+        this.crossingText.setText('Crossing '+this.crossing);
+    }
+
+    getLaneRow(laneIdx){return laneIdx+1} // row 0 = goal, 1..N = lanes, N+1 = start
+    getScreenPos(col,row){
+        return{x:col*this.cellW+this.cellW/2,y:row*this.rowH+this.rowH/2};
+    }
+
+    die(){
+        this.state='dead';this.cameras.main.shake(100,0.005);
+        if(navigator.vibrate)navigator.vibrate([50,30,50]);
+        let newBest=false;
+        if(this.crossings>this.best){this.best=this.crossings;localStorage.setItem('hop-best',this.best.toString());newBest=true}
+        const w=this.scale.width,h=this.scale.height;
+        this.deathOvl.clear();this.deathOvl.fillStyle(0x000000,0.7);this.deathOvl.fillRect(0,0,w,h);
+        this.dScore.setText(this.crossings.toString()).setPosition(w/2,h*0.36);
+        this.dBest.setText('Best: '+this.best).setPosition(w/2,h*0.46);
+        this.dNew.setText(newBest?'NEW BEST!':'').setPosition(w/2,h*0.52);
+        this.dRetry.setPosition(w/2,h*0.66);
+        this.deathC.setVisible(true);
+    }
+
+    update(time,delta){
+        const dt=delta/1000,w=this.scale.width,h=this.scale.height;
+        if(this.state==='menu'){this.menuTap.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state==='dead'){this.dRetry.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state!=='playing')return;
+
+        this.gfx.clear();this.bgGfx.clear();this.playerGfx.clear();
+
+        const totalRows=this.lanes.length+2;
+
+        // Draw grid
+        this.bgGfx.lineStyle(1,0x151525,0.1);
+        for(let c=0;c<=this.gridCols;c++){const x=c*this.cellW;this.bgGfx.lineBetween(x,0,x,h)}
+        for(let r=0;r<=totalRows;r++){const y=r*this.rowH;this.bgGfx.lineBetween(0,y,w,y)}
+
+        // Safe zones
+        this.bgGfx.fillStyle(0x0f1f0f,0.5);
+        this.bgGfx.fillRect(0,0,w,this.rowH); // goal
+        this.bgGfx.fillRect(0,(totalRows-1)*this.rowH,w,this.rowH); // start
+
+        // Lanes + obstacles
+        for(let i=0;i<this.lanes.length;i++){
+            const lane=this.lanes[i];
+            const row=i+1;
+            const ly=row*this.rowH;
+
+            if(lane.restLane){this.bgGfx.fillStyle(0x0f1f0f,0.3);this.bgGfx.fillRect(0,ly,w,this.rowH);continue}
+            if(lane.type==='ride'){this.bgGfx.fillStyle(0x0a0a2a,0.3);this.bgGfx.fillRect(0,ly,w,this.rowH)}
+
+            // Move obstacles
+            for(const obs of lane.obstacles){
+                obs.x+=lane.dir*lane.speed*dt*60/this.cellW;
+                // Wrap
+                if(lane.dir>0&&obs.x>this.gridCols+obs.w)obs.x=-obs.w;
+                if(lane.dir<0&&obs.x+obs.w<-1)obs.x=this.gridCols+1;
+            }
+
+            // Draw obstacles
+            for(const obs of lane.obstacles){
+                const ox=obs.x*this.cellW,ow=obs.w*this.cellW;
+                const color=lane.type==='danger'?0x2a1a1a:0x1a2a3a;
+                this.gfx.fillStyle(color);
+                this.gfx.fillRoundedRect(ox+2,ly+2,ow-4,this.rowH-4,4);
+                // Shadow
+                this.gfx.fillStyle(0x000000,0.2);
+                this.gfx.fillRoundedRect(ox+4,ly+5,ow-4,this.rowH-4,4);
+            }
+
+            // Collision check (player in this lane)
+            if(this.playerRow===row&&!this.moving){
+                const pp=this.getScreenPos(this.playerCol,this.playerRow);
+                const pLeft=pp.x-this.cellW/2+4,pRight=pp.x+this.cellW/2-4;
+                const pTop=pp.y-this.rowH/2+4,pBot=pp.y+this.rowH/2-4;
+
+                if(lane.type==='danger'){
+                    for(const obs of lane.obstacles){
+                        const ox=obs.x*this.cellW+2,ow=obs.w*this.cellW-4;
+                        if(pRight>ox&&pLeft<ox+ow){this.die();return}
+                    }
+                }else if(lane.type==='ride'){
+                    let onPlatform=false;
+                    for(const obs of lane.obstacles){
+                        const ox=obs.x*this.cellW-4,ow=obs.w*this.cellW+8;
+                        if(pp.x>ox&&pp.x<ox+ow){onPlatform=true;this.playerCol+=lane.dir*lane.speed*dt*60/this.gridCols;break}
+                    }
+                    if(!onPlatform){this.die();return}
+                    // Wrap player
+                    if(this.playerCol<0)this.playerCol=this.gridCols-1;
+                    if(this.playerCol>=this.gridCols)this.playerCol=0;
+                }
+            }
+        }
+
+        // Player
+        const pp=this.getScreenPos(this.playerCol,this.playerRow);
+        const ps=this.cellW-6;
+        this.playerGfx.fillStyle(0xf0f0f0);
+        this.playerGfx.fillRoundedRect(pp.x-ps/2,pp.y-ps/2,ps,ps,4);
+        this.playerGfx.lineStyle(1,0xcccccc);
+        this.playerGfx.strokeRoundedRect(pp.x-ps/2+2,pp.y-ps/2+2,ps-4,ps-4,3);
+    }
+}
+
+new Phaser.Game({
+    type:Phaser.AUTO,
+    scale:{mode:Phaser.Scale.RESIZE,parent:'game',width:'100%',height:'100%',autoCenter:Phaser.Scale.CENTER_BOTH},
+    backgroundColor:'#0a0a14',scene:[GameScene],
+    physics:{default:'arcade',arcade:{gravity:{x:0,y:0},debug:false}}
+});
+</script>
+</body>
+</html>

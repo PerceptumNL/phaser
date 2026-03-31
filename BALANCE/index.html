@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>BALANCE</title>
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    background: #0e0e18;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+#game { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+class GameScene extends Phaser.Scene {
+    constructor() {
+        super({ key: 'GameScene' });
+        this.state = 'menu'; // menu, playing, dead
+        this.score = 0;
+        this.best = parseInt(localStorage.getItem('balance-best') || '0');
+        this.holes = [];
+        this.particles = [];
+        this.tiltAvailable = false;
+        this.currentGamma = 0;
+        this.currentBeta = 0;
+        this.touchActive = false;
+        this.touchX = 0;
+        this.touchY = 0;
+        this.controlIndicatorTimer = 0;
+        this.demoAngle = 0;
+    }
+
+    create() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+
+        // Surface grid
+        this.gridGraphics = this.add.graphics();
+        this.drawGrid();
+
+        // Particle layer
+        this.particleGraphics = this.add.graphics().setDepth(5);
+
+        // Holes container (drawn below ball)
+        this.holeGraphics = this.add.graphics().setDepth(2);
+
+        // Ball shadow
+        this.ballShadow = this.add.graphics().setDepth(3);
+
+        // Ball
+        this.ball = this.physics.add.sprite(w / 2, h / 2);
+        this.ball.setVisible(false);
+        this.ball.body.setCircle(14);
+        this.ball.body.setBounce(0.4);
+        this.ball.body.setDrag(40);
+        this.ball.body.setMaxVelocity(300, 300);
+        this.ball.body.setCollideWorldBounds(false);
+        this.ball.setDepth(4);
+
+        // Ball visual (drawn manually)
+        this.ballGraphics = this.add.graphics().setDepth(4);
+        this.ballRotation = 0;
+
+        // Trail afterimages
+        this.trailGraphics = this.add.graphics().setDepth(3);
+
+        // Create walls
+        this.walls = this.physics.add.staticGroup();
+        this.createWalls();
+
+        // Dot
+        this.dot = null;
+        this.dotGraphics = this.add.graphics().setDepth(4);
+        this.dotPulseTime = 0;
+
+        // UI
+        this.scoreText = this.add.text(w / 2, 50, '0', {
+            fontSize: '48px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            fontStyle: 'bold',
+            color: '#ffffff',
+        }).setOrigin(0.5).setAlpha(0).setDepth(10);
+
+        this.controlText = this.add.text(20, h - 30, '', {
+            fontSize: '12px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            color: '#ffffff',
+        }).setAlpha(0).setDepth(10);
+
+        // Menu UI
+        this.menuContainer = this.add.container(0, 0).setDepth(20);
+        this.createMenu();
+
+        // Death UI
+        this.deathContainer = this.add.container(0, 0).setDepth(20).setVisible(false);
+        this.createDeathScreen();
+
+        // Input
+        this.input.on('pointerdown', (p) => this.handleTap(p));
+        this.input.on('pointermove', (p) => {
+            if (p.isDown && this.state === 'playing') {
+                this.touchActive = true;
+                this.touchX = p.x;
+                this.touchY = p.y;
+            }
+        });
+        this.input.on('pointerup', () => { this.touchActive = false; });
+
+        // Handle resize
+        this.scale.on('resize', (gameSize) => {
+            this.handleResize(gameSize.width, gameSize.height);
+        });
+    }
+
+    createMenu() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+
+        this.menuTitle = this.add.text(w / 2, h * 0.3, 'BALANCE', {
+            fontSize: '72px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            fontStyle: 'bold',
+            color: '#e0e0f0',
+        }).setOrigin(0.5);
+        this.menuContainer.add(this.menuTitle);
+
+        this.menuInstructions = this.add.text(w / 2, h * 0.45, 'tilt to roll · collect dots · avoid holes', {
+            fontSize: '18px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            color: '#888899',
+        }).setOrigin(0.5);
+        this.menuContainer.add(this.menuInstructions);
+
+        this.menuTap = this.add.text(w / 2, h * 0.65, 'tap to start', {
+            fontSize: '24px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            color: '#ffd700',
+        }).setOrigin(0.5);
+        this.menuContainer.add(this.menuTap);
+
+        // Demo hole on menu
+        this.menuHoleGraphics = this.add.graphics();
+        this.drawHole(this.menuHoleGraphics, w * 0.35, h * 0.55, 22);
+        this.menuContainer.add(this.menuHoleGraphics);
+    }
+
+    createDeathScreen() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+
+        this.deathOverlay = this.add.graphics();
+        this.deathOverlay.fillStyle(0x000000, 0.7);
+        this.deathOverlay.fillRect(0, 0, w, h);
+        this.deathContainer.add(this.deathOverlay);
+
+        this.deathScoreLabel = this.add.text(w / 2, h * 0.35, 'Score', {
+            fontSize: '24px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            color: '#888899',
+        }).setOrigin(0.5);
+        this.deathContainer.add(this.deathScoreLabel);
+
+        this.deathScoreText = this.add.text(w / 2, h * 0.42, '0', {
+            fontSize: '64px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            fontStyle: 'bold',
+            color: '#e0e0f0',
+        }).setOrigin(0.5);
+        this.deathContainer.add(this.deathScoreText);
+
+        this.deathBestText = this.add.text(w / 2, h * 0.52, '', {
+            fontSize: '24px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            color: '#ffd700',
+        }).setOrigin(0.5);
+        this.deathContainer.add(this.deathBestText);
+
+        this.deathNewBest = this.add.text(w / 2, h * 0.58, '', {
+            fontSize: '20px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            fontStyle: 'bold',
+            color: '#ff6b6b',
+        }).setOrigin(0.5);
+        this.deathContainer.add(this.deathNewBest);
+
+        this.deathRetry = this.add.text(w / 2, h * 0.72, 'tap to retry', {
+            fontSize: '24px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            color: '#ffd700',
+        }).setOrigin(0.5);
+        this.deathContainer.add(this.deathRetry);
+    }
+
+    createWalls() {
+        this.walls.clear(true, true);
+        const w = this.scale.width;
+        const h = this.scale.height;
+        const t = 20;
+
+        const top = this.add.rectangle(w / 2, -t / 2, w + t * 2, t);
+        const bottom = this.add.rectangle(w / 2, h + t / 2, w + t * 2, t);
+        const left = this.add.rectangle(-t / 2, h / 2, t, h + t * 2);
+        const right = this.add.rectangle(w + t / 2, h / 2, t, h + t * 2);
+        [top, bottom, left, right].forEach(wall => {
+            wall.setVisible(false);
+            this.walls.add(wall);
+        });
+
+        this.physics.add.collider(this.ball, this.walls);
+    }
+
+    drawGrid() {
+        this.gridGraphics.clear();
+        const w = this.scale.width;
+        const h = this.scale.height;
+        this.gridGraphics.lineStyle(1, 0x151525, 0.1);
+        for (let x = 0; x < w; x += 30) {
+            this.gridGraphics.moveTo(x, 0);
+            this.gridGraphics.lineTo(x, h);
+        }
+        for (let y = 0; y < h; y += 30) {
+            this.gridGraphics.moveTo(0, y);
+            this.gridGraphics.lineTo(w, y);
+        }
+        this.gridGraphics.strokePath();
+    }
+
+    drawHole(graphics, x, y, radius) {
+        // Dark void with gradient edge
+        graphics.fillStyle(0x050510, 1);
+        graphics.fillCircle(x, y, radius);
+        // Inner shadow ring
+        graphics.lineStyle(1.5, 0x020208, 0.8);
+        graphics.strokeCircle(x, y, radius - 1);
+        // Outer fade ring
+        graphics.lineStyle(2, 0x0a0a20, 0.4);
+        graphics.strokeCircle(x, y, radius + 1);
+    }
+
+    drawBall(x, y) {
+        this.ballGraphics.clear();
+        if (this.state === 'dead') return;
+
+        // Metallic ball with radial gradient feel
+        this.ballGraphics.fillStyle(0xc0c0d0, 1);
+        this.ballGraphics.fillCircle(x, y, 14);
+        // Light highlight top-left
+        this.ballGraphics.fillStyle(0xe8e8f8, 0.6);
+        this.ballGraphics.fillCircle(x - 3, y - 3, 8);
+        this.ballGraphics.fillStyle(0xf0f0ff, 0.3);
+        this.ballGraphics.fillCircle(x - 4, y - 4, 4);
+        // Rotation marker
+        const markerX = x + Math.cos(this.ballRotation) * 8;
+        const markerY = y + Math.sin(this.ballRotation) * 8;
+        this.ballGraphics.fillStyle(0xa0a0b0, 1);
+        this.ballGraphics.fillCircle(markerX, markerY, 2.5);
+    }
+
+    drawBallShadow(x, y) {
+        this.ballShadow.clear();
+        if (this.state === 'dead') return;
+        // Shadow shifts opposite to tilt
+        const sx = x + 2 - this.currentGamma * 0.05;
+        const sy = y + 2 + (this.currentBeta - 45) * 0.05;
+        this.ballShadow.fillStyle(0x000000, 0.25);
+        this.ballShadow.fillCircle(sx, sy, 14);
+    }
+
+    async handleTap(pointer) {
+        if (this.state === 'menu') {
+            // Request tilt permission on iOS
+            if (typeof DeviceOrientationEvent !== 'undefined' &&
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const response = await DeviceOrientationEvent.requestPermission();
+                    if (response === 'granted') {
+                        this.enableTilt();
+                    }
+                } catch (e) {
+                    // Touch fallback
+                }
+            } else {
+                this.enableTilt();
+            }
+            this.startGame();
+        } else if (this.state === 'dead') {
+            this.restartGame();
+        } else if (this.state === 'playing') {
+            this.touchActive = true;
+            this.touchX = pointer.x;
+            this.touchY = pointer.y;
+        }
+    }
+
+    enableTilt() {
+        window.addEventListener('deviceorientation', (event) => {
+            if (event.gamma !== null && event.beta !== null) {
+                this.tiltAvailable = true;
+                this.currentGamma = event.gamma || 0;
+                this.currentBeta = event.beta || 0;
+            }
+        });
+        // Check if tilt actually works after a brief delay
+        this.time.delayedCall(500, () => {
+            if (this.tiltAvailable) {
+                this.controlText.setText('TILT');
+            } else {
+                this.controlText.setText('TOUCH');
+            }
+            this.controlText.setAlpha(0.2);
+            this.controlIndicatorTimer = 3000;
+        });
+    }
+
+    startGame() {
+        this.state = 'playing';
+        this.score = 0;
+        this.holes = [];
+        this.particles = [];
+        this.menuContainer.setVisible(false);
+        this.deathContainer.setVisible(false);
+        this.holeGraphics.clear();
+
+        const w = this.scale.width;
+        const h = this.scale.height;
+
+        // Position ball center
+        this.ball.setPosition(w / 2, h / 2);
+        this.ball.body.setVelocity(0, 0);
+        this.ball.body.setAcceleration(0, 0);
+        this.ball.body.enable = true;
+
+        // Show score
+        this.scoreText.setText('0').setAlpha(0.3);
+
+        // Spawn first dot
+        this.spawnDot();
+    }
+
+    restartGame() {
+        this.startGame();
+    }
+
+    spawnDot() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+        const margin = 40;
+        const holeMinDist = 50;
+        const maxAttempts = 20;
+
+        let dx, dy;
+        for (let i = 0; i < maxAttempts; i++) {
+            dx = Phaser.Math.Between(margin, w - margin);
+            dy = Phaser.Math.Between(margin, h - margin);
+            let valid = true;
+            for (const hole of this.holes) {
+                if (Phaser.Math.Distance.Between(dx, dy, hole.x, hole.y) < holeMinDist) {
+                    valid = false;
+                    break;
+                }
+            }
+            if (valid) break;
+        }
+
+        this.dot = { x: dx, y: dy, spawnTime: this.time.now, fadeIn: 0 };
+    }
+
+    spawnHole() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+        const margin = 40;
+        const maxAttempts = 20;
+
+        for (let i = 0; i < maxAttempts; i++) {
+            const hx = Phaser.Math.Between(margin, w - margin);
+            const hy = Phaser.Math.Between(margin, h - margin);
+
+            // Check constraints
+            const distFromBall = Phaser.Math.Distance.Between(hx, hy, this.ball.x, this.ball.y);
+            if (distFromBall < 60) continue;
+
+            if (this.dot) {
+                const distFromDot = Phaser.Math.Distance.Between(hx, hy, this.dot.x, this.dot.y);
+                if (distFromDot < 50) continue;
+            }
+
+            let tooCloseToHole = false;
+            for (const hole of this.holes) {
+                if (Phaser.Math.Distance.Between(hx, hy, hole.x, hole.y) < 35) {
+                    tooCloseToHole = true;
+                    break;
+                }
+            }
+            if (tooCloseToHole) continue;
+
+            // Valid position found
+            this.holes.push({ x: hx, y: hy, radius: 22, scale: 0, spawnTime: this.time.now, wobble: 0 });
+            return;
+        }
+        // No valid position after 20 attempts — skip
+    }
+
+    collectDot() {
+        if (!this.dot) return;
+        const dx = this.dot.x;
+        const dy = this.dot.y;
+        this.score++;
+        this.scoreText.setText(this.score.toString());
+
+        // Milestone pulse
+        if (this.score % 5 === 0) {
+            this.tweens.add({
+                targets: this.scoreText,
+                scale: { from: 1.3, to: 1 },
+                duration: 300,
+                ease: 'Power2',
+            });
+        }
+
+        // Collection burst particles
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2;
+            this.particles.push({
+                x: dx, y: dy,
+                vx: Math.cos(angle) * (60 + Math.random() * 40),
+                vy: Math.sin(angle) * (60 + Math.random() * 40),
+                life: 1, color: 0xffd700, size: 2 + Math.random() * 2,
+            });
+        }
+
+        this.dot = null;
+
+        // Spawn hole (starting from 2nd collection)
+        if (this.score >= 2) {
+            this.spawnHole();
+        }
+
+        // Spawn next dot
+        this.time.delayedCall(200, () => {
+            if (this.state === 'playing') this.spawnDot();
+        });
+    }
+
+    die(hole) {
+        if (this.state !== 'playing') return;
+        this.state = 'dead';
+        this.ball.body.enable = false;
+
+        // Suck-in animation
+        this.tweens.add({
+            targets: this.ball,
+            x: hole.x,
+            y: hole.y,
+            duration: 200,
+            ease: 'Power2',
+        });
+
+        // Visual suck-in
+        this.ballDeathTween = { startX: this.ball.x, startY: this.ball.y, holeX: hole.x, holeY: hole.y, progress: 0, rotation: 0 };
+        this.tweens.add({
+            targets: this.ballDeathTween,
+            progress: 1,
+            rotation: Math.PI * 2,
+            duration: 200,
+            ease: 'Power2',
+            onUpdate: () => {
+                const t = this.ballDeathTween.progress;
+                const bx = Phaser.Math.Linear(this.ballDeathTween.startX, hole.x, t);
+                const by = Phaser.Math.Linear(this.ballDeathTween.startY, hole.y, t);
+                const bScale = Phaser.Math.Linear(1, 0.3, t);
+                const bAlpha = Phaser.Math.Linear(1, 0, t);
+
+                this.ballGraphics.clear();
+                this.ballGraphics.setAlpha(bAlpha);
+                this.ballGraphics.fillStyle(0xc0c0d0, 1);
+                this.ballGraphics.fillCircle(bx, by, 14 * bScale);
+                this.ballGraphics.fillStyle(0xa0a0b0, 1);
+                const mr = 8 * bScale;
+                this.ballGraphics.fillCircle(
+                    bx + Math.cos(this.ballDeathTween.rotation) * mr,
+                    by + Math.sin(this.ballDeathTween.rotation) * mr,
+                    2 * bScale
+                );
+            },
+            onComplete: () => {
+                this.ballGraphics.clear();
+                this.ballGraphics.setAlpha(1);
+                this.ballShadow.clear();
+
+                // Screen shake
+                this.cameras.main.shake(100, 0.005);
+
+                // Show death screen
+                this.showDeathScreen();
+            }
+        });
+    }
+
+    showDeathScreen() {
+        // Update best
+        let newBest = false;
+        if (this.score > this.best) {
+            this.best = this.score;
+            localStorage.setItem('balance-best', this.best.toString());
+            newBest = true;
+        }
+
+        const w = this.scale.width;
+        const h = this.scale.height;
+
+        // Rebuild death overlay
+        this.deathOverlay.clear();
+        this.deathOverlay.fillStyle(0x000000, 0.7);
+        this.deathOverlay.fillRect(0, 0, w, h);
+
+        this.deathScoreLabel.setPosition(w / 2, h * 0.35);
+        this.deathScoreText.setText(this.score.toString()).setPosition(w / 2, h * 0.42);
+        this.deathBestText.setText('Best: ' + this.best).setPosition(w / 2, h * 0.52);
+        this.deathNewBest.setText(newBest ? 'NEW BEST!' : '').setPosition(w / 2, h * 0.58);
+        this.deathRetry.setPosition(w / 2, h * 0.72);
+
+        // Flash new best
+        if (newBest) {
+            this.tweens.add({
+                targets: this.deathNewBest,
+                alpha: { from: 0, to: 1 },
+                scale: { from: 1.5, to: 1 },
+                duration: 400,
+            });
+        }
+
+        this.deathContainer.setVisible(true);
+
+        // Pulse retry text
+        this.tweens.add({
+            targets: this.deathRetry,
+            alpha: { from: 0.4, to: 1 },
+            duration: 800,
+            yoyo: true,
+            repeat: -1,
+        });
+    }
+
+    handleResize(w, h) {
+        this.drawGrid();
+        this.createWalls();
+        this.scoreText.setPosition(w / 2, 50);
+        this.controlText.setPosition(20, h - 30);
+        if (this.state === 'menu') {
+            this.menuTitle.setPosition(w / 2, h * 0.3);
+            this.menuInstructions.setPosition(w / 2, h * 0.45);
+            this.menuTap.setPosition(w / 2, h * 0.65);
+        }
+    }
+
+    update(time, delta) {
+        const dt = delta / 1000;
+
+        // Control indicator fade
+        if (this.controlIndicatorTimer > 0) {
+            this.controlIndicatorTimer -= delta;
+            if (this.controlIndicatorTimer <= 0) {
+                this.tweens.add({ targets: this.controlText, alpha: 0, duration: 500 });
+            }
+        }
+
+        if (this.state === 'menu') {
+            // Demo ball animation
+            this.demoAngle += dt * 1.5;
+            const w = this.scale.width;
+            const h = this.scale.height;
+            const demoBx = w / 2 + Math.cos(this.demoAngle) * 60;
+            const demoBY = h * 0.55 + Math.sin(this.demoAngle * 0.7) * 20;
+            this.drawBall(demoBx, demoBY);
+            this.drawBallShadow(demoBx, demoBY);
+
+            // Pulse tap text
+            this.menuTap.setAlpha(0.5 + Math.sin(time / 400) * 0.5);
+            return;
+        }
+
+        if (this.state !== 'playing') return;
+
+        // Tilt input
+        const deadZone = 2;
+        const sensitivity = 15;
+        const betaOffset = 45;
+        let ax = 0, ay = 0;
+
+        if (this.tiltAvailable) {
+            const adjustedBeta = this.currentBeta - betaOffset;
+            if (Math.abs(this.currentGamma) > deadZone) {
+                ax = this.currentGamma * sensitivity;
+            }
+            if (Math.abs(adjustedBeta) > deadZone) {
+                ay = adjustedBeta * sensitivity;
+            }
+        } else if (this.touchActive) {
+            // Touch fallback: accelerate toward touch point
+            const tdx = this.touchX - this.ball.x;
+            const tdy = this.touchY - this.ball.y;
+            const dist = Math.sqrt(tdx * tdx + tdy * tdy);
+            if (dist > 5) {
+                ax = (tdx / dist) * 200;
+                ay = (tdy / dist) * 200;
+            }
+        }
+
+        this.ball.body.setAcceleration(ax, ay);
+
+        // Update ball rotation based on velocity
+        const vx = this.ball.body.velocity.x;
+        const vy = this.ball.body.velocity.y;
+        const speed = Math.sqrt(vx * vx + vy * vy);
+        if (speed > 5) {
+            this.ballRotation += (speed / 300) * dt * 10;
+        }
+
+        // Draw ball
+        this.drawBall(this.ball.x, this.ball.y);
+        this.drawBallShadow(this.ball.x, this.ball.y);
+
+        // Motion trail
+        this.trailGraphics.clear();
+        if (speed > 100) {
+            const nx = -vx / speed;
+            const ny = -vy / speed;
+            for (let i = 1; i <= 2; i++) {
+                this.trailGraphics.fillStyle(0xc0c0d0, 0.15 / i);
+                this.trailGraphics.fillCircle(
+                    this.ball.x + nx * i * 6,
+                    this.ball.y + ny * i * 6,
+                    14 - i * 2
+                );
+            }
+        }
+
+        // Draw and animate holes
+        this.holeGraphics.clear();
+        for (const hole of this.holes) {
+            // Scale-in animation
+            if (hole.scale < 1) {
+                const elapsed = (time - hole.spawnTime) / 400;
+                hole.scale = Math.min(1, elapsed);
+            }
+            const r = hole.radius * hole.scale;
+
+            // Wobble from near miss
+            let wobbleScale = 1;
+            if (hole.wobble > 0) {
+                wobbleScale = 1 + Math.sin(hole.wobble * 10) * 0.08;
+                hole.wobble -= dt * 5;
+                if (hole.wobble < 0) hole.wobble = 0;
+            }
+
+            this.drawHole(this.holeGraphics, hole.x, hole.y, r * wobbleScale);
+
+            // Ripple ring on spawn
+            if (hole.scale < 1) {
+                const rippleR = r + (1 - hole.scale) * 30;
+                this.holeGraphics.lineStyle(1, 0x050510, (1 - hole.scale) * 0.5);
+                this.holeGraphics.strokeCircle(hole.x, hole.y, rippleR);
+            }
+        }
+
+        // Check hole collision
+        for (const hole of this.holes) {
+            if (hole.scale < 0.8) continue; // Don't kill during spawn animation
+            const dist = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, hole.x, hole.y);
+            const effectiveRadius = hole.radius - 4; // 4px forgiveness
+
+            // Near miss
+            if (dist < hole.radius + 8 && dist >= effectiveRadius) {
+                if (hole.wobble <= 0) {
+                    hole.wobble = 1;
+                    if (navigator.vibrate) navigator.vibrate(30);
+                }
+            }
+
+            if (dist < effectiveRadius) {
+                this.die(hole);
+                return;
+            }
+        }
+
+        // Draw and check dot
+        this.dotGraphics.clear();
+        if (this.dot) {
+            // Fade in
+            this.dot.fadeIn = Math.min(1, this.dot.fadeIn + dt * 5);
+            const alpha = this.dot.fadeIn;
+
+            // Float up effect
+            const floatOffset = (1 - alpha) * 10;
+
+            // Pulse
+            this.dotPulseTime += dt;
+            const pulse = 1 + Math.sin(this.dotPulseTime * 7.85) * 0.15; // ~800ms cycle
+
+            const dotR = 8 * pulse;
+            const dotY = this.dot.y + floatOffset;
+
+            // Glow
+            this.dotGraphics.fillStyle(0xffd700, 0.15 * alpha);
+            this.dotGraphics.fillCircle(this.dot.x, dotY, dotR * 2.5);
+            this.dotGraphics.fillStyle(0xffd700, 0.3 * alpha);
+            this.dotGraphics.fillCircle(this.dot.x, dotY, dotR * 1.5);
+            // Core
+            this.dotGraphics.fillStyle(0xffd700, alpha);
+            this.dotGraphics.fillCircle(this.dot.x, dotY, dotR);
+
+            // Collection check
+            const distToDot = Phaser.Math.Distance.Between(this.ball.x, this.ball.y, this.dot.x, this.dot.y);
+            if (distToDot < 30) {
+                this.collectDot();
+            }
+        }
+
+        // Update particles
+        this.particleGraphics.clear();
+        this.particles = this.particles.filter(p => {
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.life -= dt * 3;
+            if (p.life <= 0) return false;
+            this.particleGraphics.fillStyle(p.color, p.life);
+            this.particleGraphics.fillCircle(p.x, p.y, p.size * p.life);
+            return true;
+        });
+    }
+}
+
+const config = {
+    type: Phaser.AUTO,
+    scale: {
+        mode: Phaser.Scale.RESIZE,
+        parent: 'game',
+        width: '100%',
+        height: '100%',
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
+    backgroundColor: '#0e0e18',
+    scene: [GameScene],
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { x: 0, y: 0 },
+            debug: false
+        }
+    }
+};
+
+new Phaser.Game(config);
+</script>
+</body>
+</html>

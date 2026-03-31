@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>GAP</title>
+<style>
+html,body{margin:0;padding:0;overflow:hidden;touch-action:none;overscroll-behavior:none;position:fixed;width:100%;height:100%;background:#0a0a0f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+#game{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+class GameScene extends Phaser.Scene {
+    constructor(){super('GameScene')}
+    create(){
+        this.state='start';this.score=0;this.best=parseInt(localStorage.getItem('gap-best')||'0');
+        this.walls=[];this.wallSpeed=3;this.gapSize=120;this.particles=[];this.speedLines=[];
+
+        const w=this.scale.width,h=this.scale.height;
+        this.gfx=this.add.graphics().setDepth(1);
+        this.bgGfx=this.add.graphics().setDepth(0);
+        this.partGfx=this.add.graphics().setDepth(3);
+
+        // Player
+        this.playerX=w*0.3;this.playerY=h/2;this.playerTargetY=h/2;
+
+        this.scoreText=this.add.text(w/2,30,'0',{fontSize:'48px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5,0).setAlpha(0).setDepth(10);
+
+        // Menu
+        this.menuC=this.add.container(0,0).setDepth(20);
+        this.menuC.add(this.add.text(w/2,h*0.35,'GAP',{fontSize:'72px',fontStyle:'bold',color:'#00e5ff'}).setOrigin(0.5));
+        this.menuTap=this.add.text(w/2,h*0.55,'tap to start',{fontSize:'20px',color:'#00e5ff'}).setOrigin(0.5);
+        this.menuC.add(this.menuTap);
+
+        // Death
+        this.deathC=this.add.container(0,0).setDepth(20).setVisible(false);
+        this.deathOvl=this.add.graphics();this.deathC.add(this.deathOvl);
+        this.dScoreL=this.add.text(w/2,h*0.32,'Score',{fontSize:'22px',color:'#888899'}).setOrigin(0.5);
+        this.dScore=this.add.text(w/2,h*0.40,'',{fontSize:'56px',fontStyle:'bold',color:'#e0e0f0'}).setOrigin(0.5);
+        this.dBest=this.add.text(w/2,h*0.50,'',{fontSize:'22px',color:'#ffd700'}).setOrigin(0.5);
+        this.dNew=this.add.text(w/2,h*0.56,'',{fontSize:'20px',fontStyle:'bold',color:'#ff6b6b'}).setOrigin(0.5);
+        this.dRetry=this.add.text(w/2,h*0.68,'tap to retry',{fontSize:'20px',color:'#00e5ff'}).setOrigin(0.5);
+        [this.dScoreL,this.dScore,this.dBest,this.dNew,this.dRetry].forEach(t=>this.deathC.add(t));
+
+        this.input.on('pointerdown',p=>this.onTap(p));
+
+        for(let i=0;i<10;i++)this.speedLines.push({x:Math.random()*w,y:Math.random()*h,speed:50+Math.random()*50});
+    }
+
+    onTap(p){
+        const w=this.scale.width,h=this.scale.height;
+        if(this.state==='start'){this.startGame();return}
+        if(this.state==='dead'){this.startGame();return}
+        if(this.state==='playing'){this.playerTargetY=p.y}
+    }
+
+    startGame(){
+        this.state='playing';this.score=0;this.wallSpeed=3;this.gapSize=120;
+        this.walls=[];this.particles=[];
+        const w=this.scale.width,h=this.scale.height;
+        this.playerY=h/2;this.playerTargetY=h/2;this.playerX=w*0.3;
+        this.menuC.setVisible(false);this.deathC.setVisible(false);
+        this.scoreText.setText('0').setAlpha(0.4);
+        // First wall with delay
+        this.time.delayedCall(1000,()=>{if(this.state==='playing')this.spawnWall()});
+    }
+
+    spawnWall(){
+        const w=this.scale.width,h=this.scale.height;
+        const gap=Math.max(this.gapSize-this.score*2,60);
+        const gapY=Phaser.Math.Between(gap/2+20,h-gap/2-20);
+        this.walls.push({x:w+30,gapY,gapH:gap,width:30,passed:false});
+    }
+
+    die(){
+        this.state='dead';this.cameras.main.shake(120,0.008);
+        if(navigator.vibrate)navigator.vibrate(50);
+        let newBest=false;
+        if(this.score>this.best){this.best=this.score;localStorage.setItem('gap-best',this.best.toString());newBest=true}
+        const w=this.scale.width,h=this.scale.height;
+        this.deathOvl.clear();this.deathOvl.fillStyle(0x000000,0.7);this.deathOvl.fillRect(0,0,w,h);
+        this.dScore.setText(this.score.toString()).setPosition(w/2,h*0.40);
+        this.dBest.setText('Best: '+this.best).setPosition(w/2,h*0.50);
+        this.dNew.setText(newBest?'NEW BEST!':'').setPosition(w/2,h*0.56);
+        this.dRetry.setPosition(w/2,h*0.68);
+        this.deathC.setVisible(true);
+    }
+
+    update(time,delta){
+        const dt=delta/1000,w=this.scale.width,h=this.scale.height;
+        if(this.state==='start'){this.menuTap.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state==='dead'){this.dRetry.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state!=='playing')return;
+
+        // Move player toward target
+        const diff=this.playerTargetY-this.playerY;
+        this.playerY+=diff*0.15;
+
+        // Move walls
+        const speed=Math.min(this.wallSpeed+this.score*0.05,8);
+        for(const wall of this.walls){
+            wall.x-=speed;
+            // Collision check
+            if(!wall.passed&&wall.x<=this.playerX+20&&wall.x+wall.width>=this.playerX-20){
+                const inGap=this.playerY>wall.gapY-wall.gapH/2+5&&this.playerY<wall.gapY+wall.gapH/2-5;
+                if(!inGap){this.die();return}
+                wall.passed=true;this.score++;
+                this.scoreText.setText(this.score.toString());
+                if(navigator.vibrate)navigator.vibrate(20);
+                // Near miss
+                const distTop=Math.abs(this.playerY-(wall.gapY-wall.gapH/2));
+                const distBot=Math.abs(this.playerY-(wall.gapY+wall.gapH/2));
+                if(Math.min(distTop,distBot)<15){if(navigator.vibrate)navigator.vibrate(50)}
+                // Spawn next
+                this.spawnWall();
+                // Popup
+                this.particles.push({x:this.playerX+30,y:this.playerY,text:true,life:1});
+            }
+        }
+        // Cull
+        this.walls=this.walls.filter(w=>w.x+w.width>-10);
+
+        // Draw
+        this.gfx.clear();this.bgGfx.clear();
+
+        // Speed lines at higher scores
+        if(this.score>=15){
+            this.bgGfx.lineStyle(1,0xffffff,0.03+this.score*0.001);
+            for(const sl of this.speedLines){
+                sl.x-=sl.speed*dt*(1+this.score*0.02);
+                if(sl.x<0){sl.x=w;sl.y=Math.random()*h}
+                this.bgGfx.lineBetween(sl.x,sl.y,sl.x+20,sl.y);
+            }
+        }
+
+        // Walls
+        for(const wall of this.walls){
+            this.gfx.fillStyle(0x1a1a2e);
+            const gt=wall.gapY-wall.gapH/2, gb=wall.gapY+wall.gapH/2;
+            this.gfx.fillRect(wall.x,0,wall.width,gt);
+            this.gfx.fillRect(wall.x,gb,wall.width,h-gb);
+            // Edge highlights
+            this.gfx.lineStyle(1,0x2a2a4e,0.6);
+            this.gfx.lineBetween(wall.x,gt,wall.x+wall.width,gt);
+            this.gfx.lineBetween(wall.x,gb,wall.x+wall.width,gb);
+        }
+
+        // Player trail
+        for(let i=1;i<=3;i++){
+            this.gfx.fillStyle(0x00e5ff,0.1/i);
+            this.gfx.fillCircle(this.playerX,this.playerY+Math.abs(diff)*i*0.3,20-i*3);
+        }
+        // Player
+        this.gfx.fillStyle(0x00e5ff);
+        this.gfx.fillCircle(this.playerX,this.playerY,20);
+        // Glow pulse
+        const pulse=1+Math.sin(time/300)*0.05;
+        this.gfx.lineStyle(2,0x00e5ff,0.3);
+        this.gfx.strokeCircle(this.playerX,this.playerY,20*pulse+4);
+        // Highlight
+        this.gfx.fillStyle(0x60f0ff,0.3);
+        this.gfx.fillCircle(this.playerX-4,this.playerY-4,8);
+
+        // Particles/popups
+        this.partGfx.clear();
+        this.particles=this.particles.filter(p=>{
+            p.life-=dt*2.5;p.y-=30*dt;if(p.life<=0)return false;return true;
+        });
+    }
+}
+
+new Phaser.Game({
+    type:Phaser.AUTO,
+    scale:{mode:Phaser.Scale.RESIZE,parent:'game',width:'100%',height:'100%',autoCenter:Phaser.Scale.CENTER_BOTH},
+    backgroundColor:'#0a0a0f',scene:[GameScene],
+    physics:{default:'arcade',arcade:{debug:false}}
+});
+</script>
+</body>
+</html>

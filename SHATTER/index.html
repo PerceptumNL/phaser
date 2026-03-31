@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>SHATTER</title>
+<style>
+html,body{margin:0;padding:0;overflow:hidden;touch-action:none;overscroll-behavior:none;position:fixed;width:100%;height:100%;background:#0a0a14;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+#game{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+class GameScene extends Phaser.Scene {
+    constructor(){super('GameScene')}
+    create(){
+        this.state='menu';this.score=0;this.best=parseInt(localStorage.getItem('shatter-best')||'0');
+        this.bricks=[];this.barriers=[];this.balls=[];this.particles=[];
+        this.paddleX=0;this.paddleW=80;this.bricksDestroyed=0;this.level=1;
+        this.totalBricks=0;this.launched=false;
+
+        const w=this.scale.width,h=this.scale.height;
+        this.gfx=this.add.graphics().setDepth(1);
+        this.bgGfx=this.add.graphics().setDepth(0);
+        this.partGfx=this.add.graphics().setDepth(3);
+
+        this.paddleX=w/2;
+        this.fieldTop=h*0.05;this.fieldBot=h*0.75;this.fieldLeft=w*0.02;this.fieldRight=w*0.98;
+        this.paddleY=h*0.85;
+
+        this.scoreText=this.add.text(w/2,8,'0',{fontSize:'36px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5,0).setAlpha(0).setDepth(10);
+        this.levelText=this.add.text(w-10,8,'',{fontSize:'14px',color:'#888899'}).setOrigin(1,0).setAlpha(0).setDepth(10);
+        this.ballsText=this.add.text(10,8,'',{fontSize:'14px',color:'#888899'}).setOrigin(0,0).setAlpha(0).setDepth(10);
+
+        this.menuC=this.add.container(0,0).setDepth(20);
+        this.menuC.add(this.add.text(w/2,h*0.3,'SHATTER',{fontSize:'56px',fontStyle:'bold',color:'#e0e0f0'}).setOrigin(0.5));
+        this.menuC.add(this.add.text(w/2,h*0.42,'breakout with barriers',{fontSize:'18px',color:'#888899'}).setOrigin(0.5));
+        this.menuTap=this.add.text(w/2,h*0.6,'tap to start',{fontSize:'24px',color:'#ffd700'}).setOrigin(0.5);
+        this.menuC.add(this.menuTap);
+
+        this.deathC=this.add.container(0,0).setDepth(20).setVisible(false);
+        this.deathOvl=this.add.graphics();this.deathC.add(this.deathOvl);
+        this.dScore=this.add.text(w/2,h*0.38,'',{fontSize:'56px',fontStyle:'bold',color:'#e0e0f0'}).setOrigin(0.5);
+        this.dBest=this.add.text(w/2,h*0.48,'',{fontSize:'22px',color:'#ffd700'}).setOrigin(0.5);
+        this.dRetry=this.add.text(w/2,h*0.65,'tap to retry',{fontSize:'24px',color:'#ffd700'}).setOrigin(0.5);
+        [this.add.text(w/2,h*0.28,'Score',{fontSize:'22px',color:'#888899'}).setOrigin(0.5),this.dScore,this.dBest,this.dRetry].forEach(t=>this.deathC.add(t));
+
+        this.input.on('pointerdown',p=>this.onDown(p));
+        this.input.on('pointermove',p=>{if(this.state==='playing')this.paddleX=p.x});
+    }
+
+    onDown(p){
+        if(this.state==='menu'){this.startGame();return}
+        if(this.state==='dead'){this.startGame();return}
+        if(this.state==='playing'){
+            this.paddleX=p.x;
+            if(!this.launched){this.launchBall();this.launched=true}
+        }
+    }
+
+    startGame(){
+        this.state='playing';this.score=0;this.level=1;this.bricksDestroyed=0;
+        this.menuC.setVisible(false);this.deathC.setVisible(false);
+        this.scoreText.setText('0').setAlpha(0.5);
+        this.levelText.setText('Level 1').setAlpha(0.3);
+        this.generateLevel();
+        // Place ball on paddle
+        this.balls=[{x:this.paddleX,y:this.paddleY-12,vx:0,vy:0,r:8}];
+        this.launched=false;
+        this.ballsText.setText('Balls: 1').setAlpha(0.3);
+    }
+
+    launchBall(){
+        if(this.balls.length>0){
+            const b=this.balls[0];
+            const angle=-Math.PI/2+Phaser.Math.FloatBetween(-0.3,0.3);
+            const speed=350;
+            b.vx=Math.cos(angle)*speed;b.vy=Math.sin(angle)*speed;
+        }
+    }
+
+    generateLevel(){
+        const fw=this.fieldRight-this.fieldLeft,fh=this.fieldBot-this.fieldTop;
+        const gridCols=10,gridRows=Math.floor(fh/14);
+        const bw=fw/gridCols,bh=14;
+        this.bricks=[];this.barriers=[];
+
+        // Fill bricks
+        for(let c=0;c<gridCols;c++)for(let r=0;r<gridRows;r++){
+            if(Math.random()<0.08)continue; // Random gaps
+            const hp=Math.random()<0.1+this.level*0.03?2:1;
+            const hue=((r*gridCols+c)*37)%360;
+            const color=Phaser.Display.Color.HSLToColor(hue/360,0.6,0.5).color;
+            this.bricks.push({x:this.fieldLeft+c*bw,y:this.fieldTop+r*bh,w:bw-1,h:bh-1,hp,maxHp:hp,color,alive:true});
+        }
+        this.totalBricks=this.bricks.filter(b=>b.alive).length;
+
+        // Barriers (2-4 horizontal)
+        const numBarriers=2+Math.min(this.level,2);
+        for(let i=0;i<numBarriers;i++){
+            const by=this.fieldTop+fh*(i+1)/(numBarriers+1);
+            const gapX=Phaser.Math.Between(2,gridCols-3);
+            const gapW=Math.max(2-Math.floor(this.level/3),1);
+            this.barriers.push({y:by,gapX:this.fieldLeft+gapX*bw,gapW:gapW*bw,h:4});
+        }
+    }
+
+    die(){
+        this.state='dead';this.cameras.main.shake(100,0.005);
+        if(this.score>this.best){this.best=this.score;localStorage.setItem('shatter-best',this.best.toString())}
+        const w=this.scale.width,h=this.scale.height;
+        this.deathOvl.clear();this.deathOvl.fillStyle(0x000000,0.7);this.deathOvl.fillRect(0,0,w,h);
+        this.dScore.setText(this.score.toString()).setPosition(w/2,h*0.38);
+        this.dBest.setText('Best: '+this.best).setPosition(w/2,h*0.48);
+        this.dRetry.setPosition(w/2,h*0.65);
+        this.deathC.setVisible(true);
+    }
+
+    nextLevel(){
+        this.level++;this.levelText.setText('Level '+this.level);
+        this.generateLevel();
+        this.balls=[{x:this.paddleX,y:this.paddleY-12,vx:0,vy:0,r:8}];
+        this.launched=false;
+    }
+
+    update(time,delta){
+        const dt=delta/1000,w=this.scale.width,h=this.scale.height;
+        if(this.state==='menu'){this.menuTap.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state==='dead'){this.dRetry.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state!=='playing')return;
+
+        const pw=this.paddleW,ph=10;
+        this.paddleX=Phaser.Math.Clamp(this.paddleX,this.fieldLeft+pw/2,this.fieldRight-pw/2);
+
+        // Move balls
+        for(const ball of this.balls){
+            if(!this.launched){ball.x=this.paddleX;ball.y=this.paddleY-12;continue}
+            ball.x+=ball.vx*dt;ball.y+=ball.vy*dt;
+
+            // Wall bounces
+            if(ball.x-ball.r<this.fieldLeft){ball.x=this.fieldLeft+ball.r;ball.vx=Math.abs(ball.vx)}
+            if(ball.x+ball.r>this.fieldRight){ball.x=this.fieldRight-ball.r;ball.vx=-Math.abs(ball.vx)}
+            if(ball.y-ball.r<this.fieldTop){ball.y=this.fieldTop+ball.r;ball.vy=Math.abs(ball.vy)}
+
+            // Paddle bounce
+            if(ball.vy>0&&ball.y+ball.r>=this.paddleY&&ball.y+ball.r<=this.paddleY+ph+5){
+                if(ball.x>=this.paddleX-pw/2&&ball.x<=this.paddleX+pw/2){
+                    ball.vy=-Math.abs(ball.vy);
+                    // Angle based on hit position
+                    const offset=(ball.x-this.paddleX)/(pw/2);
+                    ball.vx+=offset*150;
+                    ball.y=this.paddleY-ball.r;
+                    if(navigator.vibrate)navigator.vibrate(10);
+                }
+            }
+
+            // Barrier bounce
+            for(const bar of this.barriers){
+                if(ball.y+ball.r>=bar.y&&ball.y-ball.r<=bar.y+bar.h){
+                    // Check if in gap
+                    if(ball.x>=bar.gapX&&ball.x<=bar.gapX+bar.gapW)continue;
+                    // Bounce
+                    if(ball.vy>0)ball.vy=-Math.abs(ball.vy);
+                    else ball.vy=Math.abs(ball.vy);
+                }
+            }
+
+            // Brick collision
+            for(const brick of this.bricks){
+                if(!brick.alive)continue;
+                if(ball.x+ball.r>brick.x&&ball.x-ball.r<brick.x+brick.w&&
+                   ball.y+ball.r>brick.y&&ball.y-ball.r<brick.y+brick.h){
+                    brick.hp--;
+                    if(brick.hp<=0){
+                        brick.alive=false;this.score+=10*this.level;
+                        this.scoreText.setText(this.score.toString());
+                        this.bricksDestroyed++;
+                        // Spawn extra ball every 10 bricks
+                        if(this.bricksDestroyed%10===0){
+                            this.balls.push({x:ball.x,y:ball.y,vx:ball.vx*0.8+Phaser.Math.FloatBetween(-50,50),vy:-Math.abs(ball.vy),r:8});
+                            this.ballsText.setText('Balls: '+this.balls.length);
+                        }
+                        this.spawnParticles(brick.x+brick.w/2,brick.y+brick.h/2,brick.color);
+                    }
+                    // Bounce ball
+                    const overlapX=Math.min(ball.x+ball.r-brick.x,brick.x+brick.w-(ball.x-ball.r));
+                    const overlapY=Math.min(ball.y+ball.r-brick.y,brick.y+brick.h-(ball.y-ball.r));
+                    if(overlapX<overlapY)ball.vx=-ball.vx;else ball.vy=-ball.vy;
+                    break; // One brick per frame per ball
+                }
+            }
+        }
+
+        // Remove balls that fell below
+        this.balls=this.balls.filter(b=>b.y<h+20);
+        this.ballsText.setText('Balls: '+this.balls.length);
+
+        // Check death
+        if(this.balls.length===0&&this.launched){this.die();return}
+
+        // Check level complete
+        if(this.bricks.every(b=>!b.alive)){this.nextLevel();return}
+
+        // Draw
+        this.gfx.clear();this.bgGfx.clear();
+
+        // Bricks
+        for(const brick of this.bricks){
+            if(!brick.alive)continue;
+            const alpha=brick.hp/brick.maxHp;
+            this.gfx.fillStyle(brick.color,0.5+alpha*0.5);
+            this.gfx.fillRect(brick.x,brick.y,brick.w,brick.h);
+        }
+
+        // Barriers
+        for(const bar of this.barriers){
+            this.gfx.fillStyle(0x4444aa);
+            this.gfx.fillRect(this.fieldLeft,bar.y,bar.gapX-this.fieldLeft,bar.h);
+            this.gfx.fillRect(bar.gapX+bar.gapW,bar.y,this.fieldRight-(bar.gapX+bar.gapW),bar.h);
+        }
+
+        // Paddle
+        this.gfx.fillStyle(0xe0e0f0);
+        this.gfx.fillRoundedRect(this.paddleX-pw/2,this.paddleY,pw,ph,4);
+
+        // Balls
+        for(const ball of this.balls){
+            this.gfx.fillStyle(0xffffff);this.gfx.fillCircle(ball.x,ball.y,ball.r);
+            this.gfx.fillStyle(0xccccee,0.3);this.gfx.fillCircle(ball.x-2,ball.y-2,ball.r*0.5);
+        }
+
+        // Particles
+        this.partGfx.clear();
+        this.particles=this.particles.filter(p=>{
+            p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt*4;if(p.life<=0)return false;
+            this.partGfx.fillStyle(p.color,p.life);this.partGfx.fillCircle(p.x,p.y,p.size*p.life);return true;
+        });
+    }
+
+    spawnParticles(x,y,color){
+        for(let i=0;i<3;i++){const a=Math.random()*Math.PI*2;this.particles.push({x,y,vx:Math.cos(a)*60,vy:Math.sin(a)*60,life:1,color,size:3})}
+    }
+}
+
+new Phaser.Game({
+    type:Phaser.AUTO,
+    scale:{mode:Phaser.Scale.RESIZE,parent:'game',width:'100%',height:'100%',autoCenter:Phaser.Scale.CENTER_BOTH},
+    backgroundColor:'#0a0a14',scene:[GameScene],
+    physics:{default:'arcade',arcade:{gravity:{x:0,y:0},debug:false}}
+});
+</script>
+</body>
+</html>

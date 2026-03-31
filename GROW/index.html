@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>GROW</title>
+<style>
+html,body{margin:0;padding:0;overflow:hidden;touch-action:none;overscroll-behavior:none;position:fixed;width:100%;height:100%;background:#0a0a14;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+#game{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+const WORLD=3000, PELLET_COUNT=80, AI_COUNT=12;
+const AI_COLORS=[0xef4444,0x3b82f6,0xeab308,0xa855f7,0xf97316,0xec4899,0x14b8a6,0x8b5cf6];
+function massToR(m){return Math.sqrt(m)*3.5}
+function maxSpd(m){return 250/Math.sqrt(m/20)}
+
+class GameScene extends Phaser.Scene {
+    constructor(){super('GameScene')}
+    create(){
+        this.state='menu';this.mass=20;this.best=parseInt(localStorage.getItem('grow-best')||'0');
+        this.px=WORLD/2;this.py=WORLD/2;this.pvx=0;this.pvy=0;
+        this.pellets=[];this.ais=[];this.tiltAvailable=false;this.gamma=0;this.beta=0;
+        this.touchActive=false;this.touchX=0;this.touchY=0;this.wobble={sx:1,sy:1};
+
+        const w=this.scale.width,h=this.scale.height;
+        this.gfx=this.add.graphics().setDepth(1);
+        this.gridGfx=this.add.graphics().setDepth(0);
+
+        this.massText=this.add.text(w/2,20,'',{fontSize:'20px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5,0).setAlpha(0).setDepth(10);
+        this.scoreText=this.add.text(w/2,h-30,'',{fontSize:'16px',color:'#ffd700'}).setOrigin(0.5).setAlpha(0).setDepth(10);
+
+        this.menuC=this.add.container(0,0).setDepth(20);
+        this.menuC.add(this.add.text(w/2,h*0.3,'GROW',{fontSize:'72px',fontStyle:'bold',color:'#00e5c8'}).setOrigin(0.5));
+        this.menuC.add(this.add.text(w/2,h*0.42,'tilt to move · eat smaller · avoid bigger',{fontSize:'16px',color:'#888899'}).setOrigin(0.5));
+        this.menuTap=this.add.text(w/2,h*0.6,'tap to start',{fontSize:'24px',color:'#00e5c8'}).setOrigin(0.5);
+        this.menuC.add(this.menuTap);
+
+        this.deathC=this.add.container(0,0).setDepth(20).setVisible(false);
+        this.deathOvl=this.add.graphics();this.deathC.add(this.deathOvl);
+        this.dScore=this.add.text(w/2,h*0.38,'',{fontSize:'48px',fontStyle:'bold',color:'#e0e0f0'}).setOrigin(0.5);
+        this.dBest=this.add.text(w/2,h*0.48,'',{fontSize:'22px',color:'#ffd700'}).setOrigin(0.5);
+        this.dRetry=this.add.text(w/2,h*0.65,'tap to retry',{fontSize:'24px',color:'#00e5c8'}).setOrigin(0.5);
+        [this.add.text(w/2,h*0.28,'Mass',{fontSize:'22px',color:'#888899'}).setOrigin(0.5),this.dScore,this.dBest,this.dRetry].forEach(t=>this.deathC.add(t));
+
+        this.input.on('pointerdown',p=>this.onTap(p));
+        this.input.on('pointermove',p=>{if(p.isDown&&this.state==='playing'){this.touchActive=true;this.touchX=p.x;this.touchY=p.y}});
+        this.input.on('pointerup',()=>{this.touchActive=false});
+    }
+
+    async onTap(p){
+        if(this.state==='menu'){
+            if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+                try{const r=await DeviceOrientationEvent.requestPermission();if(r==='granted')this.enableTilt()}catch(e){}
+            }else this.enableTilt();
+            this.startGame();
+        }else if(this.state==='dead'){this.startGame()}
+        else{this.touchActive=true;this.touchX=p.x;this.touchY=p.y}
+    }
+
+    enableTilt(){
+        window.addEventListener('deviceorientation',e=>{if(e.gamma!==null){this.tiltAvailable=true;this.gamma=e.gamma||0;this.beta=e.beta||0}});
+    }
+
+    startGame(){
+        this.state='playing';this.mass=20;this.px=WORLD/2;this.py=WORLD/2;this.pvx=0;this.pvy=0;
+        this.menuC.setVisible(false);this.deathC.setVisible(false);
+        this.massText.setText('Mass: 20').setAlpha(0.4);
+        this.scoreText.setText('Best: '+this.best).setAlpha(0.2);
+
+        // Spawn pellets
+        this.pellets=[];
+        for(let i=0;i<PELLET_COUNT;i++)this.pellets.push({x:Math.random()*WORLD,y:Math.random()*WORLD,mass:1+Math.random()*3,color:Phaser.Math.Between(0,7)});
+
+        // Spawn AIs
+        this.ais=[];
+        for(let i=0;i<AI_COUNT;i++){
+            const m=10+Math.random()*80;
+            this.ais.push({x:Math.random()*WORLD,y:Math.random()*WORLD,mass:m,color:AI_COLORS[i%AI_COLORS.length],
+                vx:0,vy:0,targetX:Math.random()*WORLD,targetY:Math.random()*WORLD,retarget:0});
+        }
+    }
+
+    die(){
+        this.state='dead';if(navigator.vibrate)navigator.vibrate([50,30,50]);
+        const score=Math.floor(this.mass);
+        if(score>this.best){this.best=score;localStorage.setItem('grow-best',this.best.toString())}
+        const w=this.scale.width,h=this.scale.height;
+        this.deathOvl.clear();this.deathOvl.fillStyle(0x000000,0.7);this.deathOvl.fillRect(0,0,w,h);
+        this.dScore.setText(score.toString()).setPosition(w/2,h*0.38);
+        this.dBest.setText('Best: '+this.best).setPosition(w/2,h*0.48);
+        this.dRetry.setPosition(w/2,h*0.65);
+        this.deathC.setVisible(true);
+    }
+
+    update(time,delta){
+        const dt=delta/1000,w=this.scale.width,h=this.scale.height;
+        if(this.state==='menu'){this.menuTap.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state==='dead'){this.dRetry.setAlpha(0.5+Math.sin(time/400)*0.5);return}
+        if(this.state!=='playing')return;
+
+        // Player movement
+        const ms=maxSpd(this.mass);let ax=0,ay=0;
+        if(this.tiltAvailable){
+            const dz=2,sens=12;
+            if(Math.abs(this.gamma)>dz)ax=this.gamma*sens;
+            const adjBeta=this.beta-45;
+            if(Math.abs(adjBeta)>dz)ay=adjBeta*sens;
+        }else if(this.touchActive){
+            const camX=this.px-w/2,camY=this.py-h/2;
+            const wx=this.touchX+camX,wy=this.touchY+camY;
+            const dx=wx-this.px,dy=wy-this.py,dist=Math.sqrt(dx*dx+dy*dy);
+            if(dist>5){ax=(dx/dist)*200;ay=(dy/dist)*200}
+        }
+        this.pvx+=(ax-this.pvx*3)*dt;this.pvy+=(ay-this.pvy*3)*dt;
+        const spd=Math.sqrt(this.pvx*this.pvx+this.pvy*this.pvy);
+        if(spd>ms){this.pvx*=ms/spd;this.pvy*=ms/spd}
+        this.px+=this.pvx*dt;this.py+=this.pvy*dt;
+        this.px=Phaser.Math.Clamp(this.px,0,WORLD);this.py=Phaser.Math.Clamp(this.py,0,WORLD);
+
+        const pr=massToR(this.mass);
+
+        // Eat pellets
+        for(let i=this.pellets.length-1;i>=0;i--){
+            const p=this.pellets[i],dx=this.px-p.x,dy=this.py-p.y;
+            if(dx*dx+dy*dy<(pr+5)*(pr+5)){
+                this.mass+=p.mass;this.pellets.splice(i,1);
+                // Respawn
+                this.pellets.push({x:Math.random()*WORLD,y:Math.random()*WORLD,mass:1+Math.random()*3,color:Phaser.Math.Between(0,7)});
+            }
+        }
+
+        // AI behavior
+        for(const ai of this.ais){
+            ai.retarget-=dt;
+            if(ai.retarget<=0){
+                ai.retarget=2+Math.random()*3;
+                // Bigger than player? Hunt. Smaller? Flee. Similar? Wander.
+                if(ai.mass>this.mass*1.2){ai.targetX=this.px;ai.targetY=this.py}
+                else if(ai.mass<this.mass*0.8){
+                    const dx=ai.x-this.px,dy=ai.y-this.py,d=Math.sqrt(dx*dx+dy*dy);
+                    if(d<300){ai.targetX=ai.x+(dx/d)*500;ai.targetY=ai.y+(dy/d)*500}
+                    else{ai.targetX=Math.random()*WORLD;ai.targetY=Math.random()*WORLD}
+                }else{ai.targetX=Math.random()*WORLD;ai.targetY=Math.random()*WORLD}
+            }
+            const ams=maxSpd(ai.mass)*0.8;
+            const adx=ai.targetX-ai.x,ady=ai.targetY-ai.y,ad=Math.sqrt(adx*adx+ady*ady);
+            if(ad>5){ai.vx+=(adx/ad*ams-ai.vx)*dt*2;ai.vy+=(ady/ad*ams-ai.vy)*dt*2}
+            ai.x+=ai.vx*dt;ai.y+=ai.vy*dt;
+            ai.x=Phaser.Math.Clamp(ai.x,0,WORLD);ai.y=Phaser.Math.Clamp(ai.y,0,WORLD);
+
+            // AI eats pellets
+            const air=massToR(ai.mass);
+            for(let i=this.pellets.length-1;i>=0;i--){
+                const p=this.pellets[i],dx=ai.x-p.x,dy=ai.y-p.y;
+                if(dx*dx+dy*dy<(air+5)*(air+5)){
+                    ai.mass+=p.mass*0.5;this.pellets.splice(i,1);
+                    this.pellets.push({x:Math.random()*WORLD,y:Math.random()*WORLD,mass:1+Math.random()*3,color:Phaser.Math.Between(0,7)});
+                }
+            }
+
+            // Player vs AI collision
+            const pdx=this.px-ai.x,pdy=this.py-ai.y,pdist=Math.sqrt(pdx*pdx+pdy*pdy);
+            if(pdist<(pr+air)*0.6){
+                if(this.mass>ai.mass*1.1){
+                    this.mass+=ai.mass*0.8;
+                    ai.mass=10+Math.random()*30;ai.x=Math.random()*WORLD;ai.y=Math.random()*WORLD;
+                    if(navigator.vibrate)navigator.vibrate(30);
+                }else if(ai.mass>this.mass*1.1){
+                    this.die();return;
+                }
+            }
+        }
+
+        this.massText.setText('Mass: '+Math.floor(this.mass));
+
+        // Draw
+        this.gfx.clear();this.gridGfx.clear();
+        const camX=this.px-w/2,camY=this.py-h/2;
+
+        // Grid
+        this.gridGfx.lineStyle(1,0x1a1a2e,0.08);
+        const gs=40,startX=-(camX%gs),startY=-(camY%gs);
+        for(let x=startX;x<w;x+=gs){this.gridGfx.lineBetween(x,0,x,h)}
+        for(let y=startY;y<h;y+=gs){this.gridGfx.lineBetween(0,y,w,y)}
+        // World border
+        this.gridGfx.lineStyle(2,0x2a2a4e,0.5);
+        const bx=-camX,by=-camY,bw=WORLD,bh=WORLD;
+        this.gridGfx.strokeRect(bx,by,bw,bh);
+
+        // Pellets
+        const PCLR=[0xef4444,0x3b82f6,0x22c55e,0xeab308,0xa855f7,0xf97316,0xec4899,0x14b8a6];
+        for(const p of this.pellets){
+            const sx=p.x-camX,sy=p.y-camY;
+            if(sx<-20||sx>w+20||sy<-20||sy>h+20)continue;
+            this.gfx.fillStyle(PCLR[p.color],0.7);
+            this.gfx.fillCircle(sx,sy,3+p.mass);
+        }
+
+        // AIs
+        for(const ai of this.ais){
+            const sx=ai.x-camX,sy=ai.y-camY,ar=massToR(ai.mass);
+            if(sx<-ar*2||sx>w+ar*2||sy<-ar*2||sy>h+ar*2)continue;
+            // Body
+            this.gfx.fillStyle(ai.color);this.gfx.fillCircle(sx,sy,ar);
+            // Border
+            this.gfx.lineStyle(2,Phaser.Display.Color.ValueToColor(ai.color).darken(20).color);
+            this.gfx.strokeCircle(sx,sy,ar);
+            // Eyes
+            const evx=ai.vx,evy=ai.vy,es=Math.sqrt(evx*evx+evy*evy);
+            const eox=es>5?evx/es*2:0,eoy=es>5?evy/es*2:0;
+            const eyeR=Math.max(2,ar*0.12),eyeOff=ar*0.25;
+            this.gfx.fillStyle(0xffffff);
+            this.gfx.fillCircle(sx-eyeOff+eox,sy-ar*0.15+eoy,eyeR);
+            this.gfx.fillCircle(sx+eyeOff+eox,sy-ar*0.15+eoy,eyeR);
+            this.gfx.fillStyle(0x111111);
+            this.gfx.fillCircle(sx-eyeOff+eox*1.5,sy-ar*0.15+eoy*1.5,eyeR*0.5);
+            this.gfx.fillCircle(sx+eyeOff+eox*1.5,sy-ar*0.15+eoy*1.5,eyeR*0.5);
+            // Danger/food indicator
+            if(ai.mass>this.mass*1.1){this.gfx.lineStyle(1,0xff0000,0.3);this.gfx.strokeCircle(sx,sy,ar+4)}
+        }
+
+        // Player
+        const psx=w/2,psy=h/2;
+        // Shadow
+        this.gfx.fillStyle(0x000000,0.2);this.gfx.fillCircle(psx+2,psy+2,pr);
+        // Body
+        this.gfx.fillStyle(0x00e5c8);this.gfx.fillCircle(psx,psy,pr);
+        this.gfx.fillStyle(0x40ffd8,0.3);this.gfx.fillCircle(psx-pr*0.2,psy-pr*0.2,pr*0.6);
+        // Border
+        this.gfx.lineStyle(2,0x00b39e);this.gfx.strokeCircle(psx,psy,pr);
+        // Eyes
+        const pspd=Math.sqrt(this.pvx*this.pvx+this.pvy*this.pvy);
+        const pex=pspd>5?this.pvx/pspd*2:0,pey=pspd>5?this.pvy/pspd*2:0;
+        const per=Math.max(2,pr*0.12),peo=pr*0.25;
+        this.gfx.fillStyle(0xffffff);
+        this.gfx.fillCircle(psx-peo+pex,psy-pr*0.15+pey,per);
+        this.gfx.fillCircle(psx+peo+pex,psy-pr*0.15+pey,per);
+        this.gfx.fillStyle(0x111111);
+        this.gfx.fillCircle(psx-peo+pex*1.5,psy-pr*0.15+pey*1.5,per*0.5);
+        this.gfx.fillCircle(psx+peo+pex*1.5,psy-pr*0.15+pey*1.5,per*0.5);
+    }
+}
+
+new Phaser.Game({
+    type:Phaser.AUTO,
+    scale:{mode:Phaser.Scale.RESIZE,parent:'game',width:'100%',height:'100%',autoCenter:Phaser.Scale.CENTER_BOTH},
+    backgroundColor:'#0a0a14',scene:[GameScene],
+    physics:{default:'arcade',arcade:{gravity:{x:0,y:0},debug:false}}
+});
+</script>
+</body>
+</html>

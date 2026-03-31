@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phaser Games</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0e0e18;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+  h1 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    color: #fff;
+  }
+  .subtitle {
+    color: #888;
+    margin-bottom: 2rem;
+  }
+  .games {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    max-width: 960px;
+  }
+  a.card {
+    display: block;
+    background: #1a1a2e;
+    border: 1px solid #2a2a3e;
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  a.card:hover {
+    border-color: #5865f2;
+    transform: translateY(-2px);
+  }
+  .card h2 {
+    font-size: 1.25rem;
+    color: #fff;
+    margin-bottom: 0.5rem;
+  }
+  .card p {
+    font-size: 0.875rem;
+    color: #aaa;
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+  <h1>Phaser Games</h1>
+  <p class="subtitle">Browser games built with Phaser 3 and Claude Code</p>
+  <div class="games">
+    <a class="card" href="BALANCE/">
+      <h2>BALANCE</h2>
+      <p>Tilt your phone to roll a ball, collect dots, avoid holes.</p>
+    </a>
+    <a class="card" href="CHAIN/">
+      <h2>CHAIN</h2>
+      <p>Draw lines through matching colors. Loop to clear all of a color.</p>
+    </a>
+    <a class="card" href="CRUSH/">
+      <h2>CRUSH</h2>
+      <p>Match-3 puzzle with cascading combos.</p>
+    </a>
+    <a class="card" href="DROP/">
+      <h2>DROP</h2>
+      <p>Drop and stack — precision timing game.</p>
+    </a>
+    <a class="card" href="GAP/">
+      <h2>GAP</h2>
+      <p>Navigate through gaps with precise timing.</p>
+    </a>
+    <a class="card" href="GROW/">
+      <h2>GROW</h2>
+      <p>Grow and expand while avoiding obstacles.</p>
+    </a>
+    <a class="card" href="HOP/">
+      <h2>HOP</h2>
+      <p>Classic lane-hopping — tap to hop, dodge traffic, reach the top.</p>
+    </a>
+    <a class="card" href="LAUNCH/">
+      <h2>LAUNCH</h2>
+      <p>Launch projectiles with the right angle and power.</p>
+    </a>
+    <a class="card" href="RISE/">
+      <h2>RISE</h2>
+      <p>Ascend platforms in an endless vertical climb.</p>
+    </a>
+    <a class="card" href="SHATTER/">
+      <h2>SHATTER</h2>
+      <p>Break everything. Satisfying destruction physics.</p>
+    </a>
+    <a class="card" href="bollenstreek-blitz/dist/">
+      <h2>Bollenstreek Blitz</h2>
+      <p>Delivery runner through the Duin- en Bollenstreek. Pick up packages, race the clock.</p>
+    </a>
+  </div>
+</body>
+</html>
