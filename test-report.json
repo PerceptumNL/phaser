@@ -1,0 +1,402 @@
+[
+  {
+    "game": "BALANCE",
+    "pass": true,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": true,
+        "detail": "Canvas has visible content (multiple colors detected)"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-BALANCE.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 17207 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 4295,
+    "screenshot": "/tmp/test-BALANCE.png"
+  },
+  {
+    "game": "CHAIN",
+    "pass": true,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": true,
+        "detail": "Canvas has visible content (multiple colors detected)"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-CHAIN.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 14959 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 4027,
+    "screenshot": "/tmp/test-CHAIN.png"
+  },
+  {
+    "game": "CRUSH",
+    "pass": true,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": true,
+        "detail": "Canvas has visible content (multiple colors detected)"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-CRUSH.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 14213 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 4090,
+    "screenshot": "/tmp/test-CRUSH.png"
+  },
+  {
+    "game": "DROP",
+    "pass": false,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": false,
+        "detail": "Canvas appears blank — possible black screen bug"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-DROP.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 14864 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 4000,
+    "screenshot": "/tmp/test-DROP.png"
+  },
+  {
+    "game": "GAP",
+    "pass": false,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": false,
+        "detail": "Canvas appears blank — possible black screen bug"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-GAP.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 9714 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 4074,
+    "screenshot": "/tmp/test-GAP.png"
+  },
+  {
+    "game": "GROW",
+    "pass": true,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": true,
+        "detail": "Canvas has visible content (multiple colors detected)"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-GROW.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 26144 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 4067,
+    "screenshot": "/tmp/test-GROW.png"
+  },
+  {
+    "game": "HOP",
+    "pass": false,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": false,
+        "detail": "Canvas appears blank — possible black screen bug"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-HOP.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 24244 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 3987,
+    "screenshot": "/tmp/test-HOP.png"
+  },
+  {
+    "game": "LAUNCH",
+    "pass": false,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": false,
+        "detail": "Canvas appears blank — possible black screen bug"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-LAUNCH.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 14951 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 4012,
+    "screenshot": "/tmp/test-LAUNCH.png"
+  },
+  {
+    "game": "RISE",
+    "pass": true,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": true,
+        "detail": "Canvas has visible content (multiple colors detected)"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-RISE.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 18413 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 4091,
+    "screenshot": "/tmp/test-RISE.png"
+  },
+  {
+    "game": "SHATTER",
+    "pass": true,
+    "checks": {
+      "loads": {
+        "pass": true,
+        "detail": "Page loaded successfully"
+      },
+      "canvas_exists": {
+        "pass": true,
+        "detail": "1 canvas element(s)"
+      },
+      "has_visible_content": {
+        "pass": true,
+        "detail": "Canvas has visible content (multiple colors detected)"
+      },
+      "no_console_errors": {
+        "pass": true,
+        "detail": "No console errors"
+      },
+      "has_game_state": {
+        "pass": false,
+        "detail": "No __GAME_STATE__ — add instrumentation for deeper testing"
+      },
+      "screenshot_taken": {
+        "pass": true,
+        "detail": "/tmp/test-SHATTER.png"
+      },
+      "has_game_spec": {
+        "pass": true,
+        "detail": "CLAUDE.md: 31745 chars"
+      }
+    },
+    "errors": [],
+    "warnings": [
+      "Game lacks __GAME_STATE__ instrumentation — only smoke tests possible"
+    ],
+    "duration_ms": 4066,
+    "screenshot": "/tmp/test-SHATTER.png"
+  }
+]
